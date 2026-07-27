@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { downloadAndResizeCover } from "../src/providers/cover-art.js";
+import { writeCoverArt } from "../src/utils.js";
 
 const VALID_JPEG_BASE64 = "/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCABkAGQDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAYI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AnQCOaRAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/2Q==";
 
@@ -131,5 +135,63 @@ describe("downloadAndResizeCover", () => {
     });
 
     expect(result).not.toBeNull();
+  });
+});
+
+describe("writeCoverArt", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cover-art-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns null when coverArt buffer is null", () => {
+    const bookDir = path.join(tmpDir, "Author", "Book");
+    const result = writeCoverArt(null, bookDir);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when coverArt buffer is undefined", () => {
+    const bookDir = path.join(tmpDir, "Author", "Book");
+    const result = writeCoverArt(undefined, bookDir);
+    expect(result).toBeNull();
+  });
+
+  it("writes cover.jpg to book directory", () => {
+    const bookDir = path.join(tmpDir, "Author", "Book");
+    const buffer = Buffer.from("fake image data");
+
+    const result = writeCoverArt(buffer, bookDir);
+
+    expect(result).toBe(path.join(bookDir, "cover.jpg"));
+    expect(fs.existsSync(result!)).toBe(true);
+  });
+
+  it("creates book directory if it does not exist", () => {
+    const bookDir = path.join(tmpDir, "Author", "Series", "Book");
+    const buffer = Buffer.from("fake image data");
+
+    const result = writeCoverArt(buffer, bookDir);
+
+    expect(result).not.toBeNull();
+    expect(fs.existsSync(bookDir)).toBe(true);
+    expect(fs.existsSync(path.join(bookDir, "cover.jpg"))).toBe(true);
+  });
+
+  it("overwrites existing cover.jpg", () => {
+    const bookDir = path.join(tmpDir, "Author", "Book");
+    fs.mkdirSync(bookDir, { recursive: true });
+    fs.writeFileSync(path.join(bookDir, "cover.jpg"), "old data");
+
+    const buffer = Buffer.from("new image data");
+    const result = writeCoverArt(buffer, bookDir);
+
+    expect(result).not.toBeNull();
+    const contents = fs.readFileSync(path.join(bookDir, "cover.jpg"));
+    expect(contents.equals(buffer)).toBe(true);
   });
 });

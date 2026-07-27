@@ -9,6 +9,7 @@ import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { resolveMetadata } from "./providers/metadata-resolver.js";
 import { downloadAndResizeCover } from "./providers/cover-art.js";
 import { tagMultiFileSet } from "./taggers/index.js";
+import { buildBookFolderPath, writeCoverArt } from "./utils.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
@@ -150,6 +151,12 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
 
   if (coverArt) {
     console.log(`  Cover art downloaded (${coverArt.length} bytes)`);
+  }
+
+  const bookDir = buildBookFolderPath(config.output, metadata.author, metadata.title, metadata.series);
+  const coverPath = writeCoverArt(coverArt, bookDir);
+  if (coverPath) {
+    console.log(`  Cover art written to ${coverPath}`);
   }
 
   tagMultiFileSet(bookSet.files, metadata, coverArt ?? undefined);
