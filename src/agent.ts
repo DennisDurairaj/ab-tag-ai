@@ -42,16 +42,23 @@ async function processWithConcurrency<T>(
   const queue = [...items];
   let active = 0;
   let index = 0;
+  let started = 0;
 
   return new Promise((resolve) => {
     function next() {
       while (active < concurrency && index < queue.length) {
         const item = queue[index++];
+        const delay = started++ * 500;
         active++;
-        fn(item).finally(() => {
+        const run = () => fn(item).finally(() => {
           active--;
           next();
         });
+        if (delay > 0) {
+          setTimeout(run, delay);
+        } else {
+          run();
+        }
       }
       if (active === 0 && index >= queue.length) {
         resolve();

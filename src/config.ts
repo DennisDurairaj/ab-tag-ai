@@ -22,7 +22,7 @@ const DEFAULT_CONFIG: Config = {
   llm_model: "",
   llm_api_key: "",
   llm_api_base_url: "",
-  concurrency: 4,
+  concurrency: 1,
   log_level: "info",
 };
 
