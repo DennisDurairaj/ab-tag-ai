@@ -1,61 +1,90 @@
 import { describe, it, expect } from "vitest";
-import { searchOpenLibraryAsin } from "../src/providers/open-library.js";
+import { searchOpenLibraryByIsbn } from "../src/providers/open-library.js";
 
-function mockFetch(status: number, body: unknown): typeof fetch {
-  return async () => new Response(JSON.stringify(body), { status });
+interface MockCall {
+  url: string;
+  init?: RequestInit;
 }
 
-describe("searchOpenLibraryAsin", () => {
-  it("returns ASIN when search results contain id_asin", async () => {
-    const fetchFn = mockFetch(200, {
-      docs: [{ id_asin: ["B000002IX7"] }],
+function createMockFetch(response: { status: number; body: unknown }) {
+  const calls: MockCall[] = [];
+
+  const mockFn = async (url: string, init?: RequestInit) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify(response.body), { status: response.status });
+  };
+
+  return { mockFn, calls };
+}
+
+describe("searchOpenLibraryByIsbn", () => {
+  it("returns book metadata when ISBN search finds results", async () => {
+    const { mockFn, calls } = createMockFetch({
+      status: 200,
+      body: {
+        numFound: 1,
+        start: 0,
+        docs: [
+          {
+            key: "/works/OL27448W",
+            title: "The Hobbit",
+            author_name: ["J. R. R. Tolkien"],
+            first_publish_year: 1954,
+            cover_i: 258027,
+            isbn: ["9780544003415", "0544003411"],
+            publisher: ["Houghton Mifflin"],
+            language: ["eng"],
+            subject: ["Fantasy fiction", "Middle Earth"],
+            edition_count: 120,
+          },
+        ],
+      },
     });
-    const result = await searchOpenLibraryAsin("The Hobbit", "Tolkien", fetchFn);
-    expect(result).toBe("B000002IX7");
+
+    const result = await searchOpenLibraryByIsbn("9780544003415", mockFn);
+    expect(result).toEqual({
+      key: "/works/OL27448W",
+      title: "The Hobbit",
+      authorName: ["J. R. R. Tolkien"],
+      firstPublishYear: 1954,
+      coverId: 258027,
+      isbn: ["9780544003415", "0544003411"],
+      publisher: ["Houghton Mifflin"],
+      language: ["eng"],
+      subject: ["Fantasy fiction", "Middle Earth"],
+      editionCount: 120,
+    });
+
+    expect(calls[0].url).toContain("/search.json");
+    expect(calls[0].url).toContain("isbn=9780544003415");
+    expect(calls[0].url).not.toContain("q=");
   });
 
-  it("returns first ASIN when multiple results exist", async () => {
-    const fetchFn = mockFetch(200, {
-      docs: [
-        { id_asin: ["B000002IX7"] },
-        { id_asin: ["B00B8LXTKW"] },
-      ],
+  it("returns null when no docs found", async () => {
+    const { mockFn } = createMockFetch({
+      status: 200,
+      body: { numFound: 0, start: 0, docs: [] },
     });
-    const result = await searchOpenLibraryAsin("The Hobbit", "Tolkien", fetchFn);
-    expect(result).toBe("B000002IX7");
-  });
 
-  it("returns null when no docs match", async () => {
-    const fetchFn = mockFetch(200, { docs: [] });
-    const result = await searchOpenLibraryAsin("Unknown Book", "Nobody", fetchFn);
-    expect(result).toBeNull();
-  });
-
-  it("returns null when docs have no id_asin", async () => {
-    const fetchFn = mockFetch(200, {
-      docs: [{ isbn: ["1234567890"] }],
-    });
-    const result = await searchOpenLibraryAsin("Some Book", "Some Author", fetchFn);
+    const result = await searchOpenLibraryByIsbn("0000000000", mockFn);
     expect(result).toBeNull();
   });
 
   it("returns null on HTTP error", async () => {
-    const fetchFn = mockFetch(500, { error: "Server Error" });
-    const result = await searchOpenLibraryAsin("Any", "Any", fetchFn);
+    const { mockFn } = createMockFetch({
+      status: 500,
+      body: { error: "Server Error" },
+    });
+
+    const result = await searchOpenLibraryByIsbn("9780544003415", mockFn);
     expect(result).toBeNull();
   });
 
   it("returns null when fetch throws", async () => {
-    const fetchFn = async () => { throw new Error("Network failure"); };
-    const result = await searchOpenLibraryAsin("Any", "Any", fetchFn);
-    expect(result).toBeNull();
-  });
-
-  it("validates ASIN before returning", async () => {
-    const fetchFn = mockFetch(200, {
-      docs: [{ id_asin: ["invalid-asin-12"] }],
-    });
-    const result = await searchOpenLibraryAsin("Any", "Any", fetchFn);
+    const mockFn = async () => {
+      throw new Error("Network failure");
+    };
+    const result = await searchOpenLibraryByIsbn("9780544003415", mockFn);
     expect(result).toBeNull();
   });
 });

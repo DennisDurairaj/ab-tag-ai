@@ -106,15 +106,19 @@ export function scanForAudioFiles(inputDir: string): AudioFile[] {
   return files;
 }
 
+function pushToMapGroup<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const existing = map.get(key) || [];
+  existing.push(value);
+  map.set(key, existing);
+}
+
 function groupByStem(files: AudioFile[]): Map<string, AudioFile[]> {
   const groups = new Map<string, AudioFile[]>();
 
   for (const file of files) {
     const basename = path.basename(file.path, path.extname(file.path));
     const stem = extractCommonStem(basename);
-    const existing = groups.get(stem) || [];
-    existing.push(file);
-    groups.set(stem, existing);
+    pushToMapGroup(groups, stem, file);
   }
 
   return groups;
@@ -142,9 +146,7 @@ export function detectMultiFileSets(files: AudioFile[]): MultiFileSet[] {
 
   for (const file of files) {
     const dir = path.dirname(file.path);
-    const existing = byDir.get(dir) || [];
-    existing.push(file);
-    byDir.set(dir, existing);
+    pushToMapGroup(byDir, dir, file);
   }
 
   const sets: MultiFileSet[] = [];

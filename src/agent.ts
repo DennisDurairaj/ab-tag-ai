@@ -80,6 +80,11 @@ function printSummary(bookSets: BookSet[]): void {
 
   console.log(`Found ${totalBooks} book(s) across ${totalFiles} audio file(s).`);
 
+  for (const set of bookSets) {
+    const title = set.books[0]?.title || "Unknown";
+    console.log(`  - "${title}": ${set.files.length} file(s)`);
+  }
+
   if (filesMissingMetadata.length > 0) {
     console.log(`Files missing metadata (${filesMissingMetadata.length}):`);
     for (const file of filesMissingMetadata) {
