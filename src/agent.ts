@@ -7,10 +7,9 @@ import { createAsinCache, acquireAsin, verifyAsin } from "./providers/asin.js";
 import { searchOpenLibraryAsin } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { resolveMetadata } from "./providers/metadata-resolver.js";
-import { downloadAndResizeCover } from "./providers/cover-art.js";
-import { tagMultiFileSet } from "./taggers/index.js";
-import { buildBookFolderPath, writeCoverArt } from "./utils.js";
 import { inferBook } from "./inference.js";
+import { createLlmVerifier } from "./verifier.js";
+import type { Verifier } from "./verifier.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
@@ -21,9 +20,10 @@ export async function processLibrary(config: Config): Promise<void> {
   printSummary(bookSets);
 
   const asinCache = createAsinCache(CACHE_DIR);
+  const verifier = createLlmVerifier({ model: config.llm_model });
 
   for (const bookSet of bookSets) {
-    await processBook(bookSet, config, asinCache);
+    await processBook(bookSet, config, asinCache, verifier);
   }
 
   asinCache.save();
@@ -77,7 +77,7 @@ function printSummary(bookSets: BookSet[]): void {
   }
 }
 
-async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<typeof createAsinCache>): Promise<void> {
+async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<typeof createAsinCache>, verifier: Verifier): Promise<void> {
   const book = bookSet.books[0];
   if (!book) return;
 
@@ -93,12 +93,12 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
     existingAsin: book.asin || undefined,
     searchOpenLibrary: searchOpenLibraryAsin,
     searchHardcover: searchHardcoverAsin,
-    verifyAsinFn: (asin, identity) => verifyAsin({ asin, identity }),
+    verifyAsinFn: (asin) => verifyAsin({ asin }),
   });
 
   if (!asinResult.asin) {
     console.log(`  No ASIN found - flagged for manual review`);
-    flagForReview(book, filePaths, config);
+    flagForReview(book, filePaths, config, "No ASIN could be acquired from any source");
     return;
   }
 
@@ -113,37 +113,34 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
 
   if (!metadataResult.metadata) {
     console.log(`  Could not resolve metadata - flagged for manual review`);
-    flagForReview(book, filePaths, config);
+    flagForReview(book, filePaths, config, "Metadata could not be resolved from any provider");
     return;
   }
 
   const metadata = metadataResult.metadata;
-  console.log(`  Title: ${metadata.title}`);
-  console.log(`  Author: ${metadata.author}`);
-  if (metadata.series) {
-    console.log(`  Series: ${metadata.series} (${metadata.seriesPart})`);
-  }
 
-  const coverArt = await downloadAndResizeCover({
-    coverUrl: metadata.coverUrl,
-    coverId: metadata.coverId,
+  const verdict = await verifier({
+    identity: { title: book.title, author: book.author },
+    existingMetadata: bookSet.files[0].existingMetadata,
+    candidate: metadata,
   });
 
-  if (coverArt) {
-    console.log(`  Cover art downloaded (${coverArt.length} bytes)`);
+  if (verdict.verdict === "trust") {
+    console.log(`  Verified: ${metadata.title} by ${metadata.author}`);
+    if (metadata.series) {
+      console.log(`  Series: ${metadata.series} (${metadata.seriesPart})`);
+    }
+    console.log(`  Verifier: ${verdict.reason}`);
+  } else if (verdict.verdict === "flag") {
+    console.log(`  Flagged for review: ${verdict.reason}`);
+    flagForReview(book, filePaths, config, verdict.reason);
+  } else {
+    console.log(`  Retry requested: ${verdict.reason}`);
+    flagForReview(book, filePaths, config, verdict.reason);
   }
-
-  const bookDir = buildBookFolderPath(config.output, metadata.author, metadata.title, metadata.series);
-  const coverPath = writeCoverArt(coverArt, bookDir);
-  if (coverPath) {
-    console.log(`  Cover art written to ${coverPath}`);
-  }
-
-  tagMultiFileSet(bookSet.files, metadata, coverArt ?? undefined);
-  console.log(`  Tags written to ${bookSet.files.length} file(s)`);
 }
 
-function flagForReview(book: Book, filePaths: string[], config: Config): void {
+function flagForReview(book: Book, filePaths: string[], config: Config, reason: string): void {
   const reviewDir = path.join(config.output, "review");
   fs.mkdirSync(reviewDir, { recursive: true });
   const safeName = book.title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
@@ -152,7 +149,7 @@ function flagForReview(book: Book, filePaths: string[], config: Config): void {
     title: book.title,
     author: book.author,
     files: filePaths,
-    reason: "No ASIN could be acquired from any source",
+    reason,
     timestamp: new Date().toISOString(),
   };
   fs.writeFileSync(reviewPath, JSON.stringify(reviewData, null, 2), "utf-8");

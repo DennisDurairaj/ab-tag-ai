@@ -161,171 +161,33 @@ describe("verifyAsin", () => {
     isAdult: false,
   };
 
-  interface MockCall {
-    url: string;
-    init?: RequestInit;
-  }
-
   function createMockFetch(response: { status: number; body: unknown }) {
-    const calls: MockCall[] = [];
     const mockFn = async (url: string, init?: RequestInit) => {
-      calls.push({ url, init });
       return new Response(JSON.stringify(response.body), { status: response.status });
     };
-    return { mockFn, calls };
+    return { mockFn };
   }
 
-  it("returns true when Audnexus title matches exactly", async () => {
+  it("returns true when Audnexus lookup succeeds", async () => {
     const { mockFn } = createMockFetch({ status: 200, body: AUDNEXUS_RESPONSE });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
+    const result = await verifyAsin({ asin: "B08G9PRS1K", fetchFn: mockFn });
     expect(result).toBe(true);
-  });
-
-  it("returns true when titles match with different casing", async () => {
-    const { mockFn } = createMockFetch({ status: 200, body: AUDNEXUS_RESPONSE });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "project hail mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
-    expect(result).toBe(true);
-  });
-
-  it("returns true when titles match with extra punctuation", async () => {
-    const { mockFn } = createMockFetch({ status: 200, body: AUDNEXUS_RESPONSE });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary!", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
-    expect(result).toBe(true);
-  });
-
-  it("returns true when expected title is a substring of actual title", async () => {
-    const response = { ...AUDNEXUS_RESPONSE, title: "Project Hail Mary: A Novel" };
-    const { mockFn } = createMockFetch({ status: 200, body: response });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
-    expect(result).toBe(true);
-  });
-
-  it("returns true when actual title is a substring of expected title", async () => {
-    const response = { ...AUDNEXUS_RESPONSE, title: "Hail Mary" };
-    const { mockFn } = createMockFetch({ status: 200, body: response });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
-    expect(result).toBe(true);
-  });
-
-  it("returns false when titles are completely different", async () => {
-    const response = { ...AUDNEXUS_RESPONSE, title: "The Completely Different Book" };
-    const { mockFn } = createMockFetch({ status: 200, body: response });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
-    expect(result).toBe(false);
   });
 
   it("returns false when Audnexus lookup fails", async () => {
     const { mockFn } = createMockFetch({ status: 404, body: { error: "Not found" } });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
+    const result = await verifyAsin({ asin: "B08G9PRS1K", fetchFn: mockFn });
     expect(result).toBe(false);
   });
 
   it("returns false when fetch throws", async () => {
     const mockFn = async () => { throw new Error("Network failure"); };
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
+    const result = await verifyAsin({ asin: "B08G9PRS1K", fetchFn: mockFn });
     expect(result).toBe(false);
   });
 
   it("returns false for invalid ASIN format", async () => {
-    const result = await verifyAsin({
-      asin: "INVALID",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-    });
-    expect(result).toBe(false);
-  });
-
-  it("returns false when identity title is empty", async () => {
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "", author: "Andy Weir" },
-    });
-    expect(result).toBe(false);
-  });
-
-  it("handles non-ASCII titles correctly", async () => {
-    const response = { ...AUDNEXUS_RESPONSE, title: "Łódź Podróże" };
-    const { mockFn } = createMockFetch({ status: 200, body: response });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Łódź Podróże", author: "Author" },
-      fetchFn: mockFn,
-    });
-    expect(result).toBe(true);
-  });
-
-  it("returns true when 70% of words match", async () => {
-    const response = { ...AUDNEXUS_RESPONSE, title: "Project Hail Mary Audiobook" };
-    const { mockFn } = createMockFetch({ status: 200, body: response });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
-    expect(result).toBe(true);
-  });
-
-  it("returns false when word overlap is below threshold", async () => {
-    const response = { ...AUDNEXUS_RESPONSE, title: "Project Galaxy Quest" };
-    const { mockFn } = createMockFetch({ status: 200, body: response });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
-    expect(result).toBe(false);
-  });
-
-  it("returns false when Audnexus returns title with only punctuation", async () => {
-    const response = { ...AUDNEXUS_RESPONSE, title: "---" };
-    const { mockFn } = createMockFetch({ status: 200, body: response });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
-    expect(result).toBe(false);
-  });
-
-  it("returns false when repeated words do not inflate overlap score", async () => {
-    const response = { ...AUDNEXUS_RESPONSE, title: "The the the Different Book" };
-    const { mockFn } = createMockFetch({ status: 200, body: response });
-    const result = await verifyAsin({
-      asin: "B08G9PRS1K",
-      identity: { title: "Project Hail Mary", author: "Andy Weir" },
-      fetchFn: mockFn,
-    });
+    const result = await verifyAsin({ asin: "INVALID" });
     expect(result).toBe(false);
   });
 });
