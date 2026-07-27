@@ -80,6 +80,7 @@ describe("resolveMetadata", () => {
           ],
         },
       },
+      { status: 200, body: { entries: [] } },
       {
         status: 200,
         body: {
@@ -113,8 +114,8 @@ describe("resolveMetadata", () => {
     expect(result.metadata?.coverId).toBe(258027);
 
     expect(calls[0].url).toContain("openlibrary.org");
-    expect(calls[1].url).toContain("openlibrary.org");
-    expect(calls[2].url).toContain("audnex.us");
+    expect(calls[2].url).toContain("openlibrary.org");
+    expect(calls[3].url).toContain("audnex.us");
   });
 
   it("falls back to Hardcover then enriches with Audnexus", async () => {
@@ -163,6 +164,7 @@ describe("resolveMetadata", () => {
           ],
         },
       },
+      { status: 200, body: { entries: [] } },
       {
         status: 200,
         body: {
@@ -304,6 +306,7 @@ describe("fetchNextCandidate", () => {
           docs: [{ key: "/works/OL1W", title: "The Hobbit", author_name: ["Tolkien"], isbn: ["0544003411"], cover_i: 258027 }],
         },
       },
+      { status: 200, body: { entries: [] } },
       {
         status: 200,
         body: {
@@ -337,6 +340,7 @@ describe("fetchNextCandidate", () => {
           docs: [{ key: "/works/OL1W", title: "The Hobbit", author_name: ["Tolkien"], isbn: ["0544003411"], cover_i: 258027 }],
         },
       },
+      { status: 200, body: { entries: [] } },
       {
         status: 200,
         body: {

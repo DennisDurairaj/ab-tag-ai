@@ -3,6 +3,22 @@ import { delay } from "../utils.js";
 import type { BookIdentity } from "../types.js";
 
 const OPEN_LIBRARY_DELAY_MS = 1100;
+const OPEN_LIBRARY_SEARCH_FIELDS = "key,title,author_name,isbn,cover_i";
+const OPEN_LIBRARY_SEARCH_LIMIT = 5;
+const OPEN_LIBRARY_EDITIONS_LIMIT = 5;
+
+interface OpenLibrarySearchDoc {
+  key: string;
+  title: string;
+  author_name?: string[];
+  isbn?: string[];
+  cover_i?: number;
+}
+
+interface OpenLibraryEdition {
+  isbn_10?: string[];
+  isbn_13?: string[];
+}
 
 export interface OpenLibraryBook {
   key: string;
@@ -23,28 +39,57 @@ export async function searchOpenLibraryAsin(
 ): Promise<string | null> {
   try {
     const query = `${identity.title} ${identity.author}`;
-    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=key,title,author_name,isbn,cover_i&limit=5`;
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=${OPEN_LIBRARY_SEARCH_FIELDS}&limit=${OPEN_LIBRARY_SEARCH_LIMIT}`;
 
     const response = await fetchFn(url);
     if (!response.ok) return null;
 
     const data = (await response.json()) as {
       numFound: number;
-      docs?: Array<{
-        key: string;
-        title: string;
-        author_name?: string[];
-        isbn?: string[];
-        cover_i?: number;
-      }>;
+      docs?: OpenLibrarySearchDoc[];
     };
 
     if (!data.docs || data.docs.length === 0) return null;
 
     for (const doc of data.docs) {
+      const asin = await tryEditionsEndpoint(doc.key, fetchFn);
+      if (asin) return asin;
+    }
+
+    for (const doc of data.docs) {
       if (!doc.isbn) continue;
       const found = doc.isbn.find(validateAsin);
       if (found) return found;
+    }
+
+    return null;
+  } catch {
+    return null;
+  } finally {
+    await delay(OPEN_LIBRARY_DELAY_MS);
+  }
+}
+
+async function tryEditionsEndpoint(
+  workKey: string,
+  fetchFn: typeof fetch,
+): Promise<string | null> {
+  try {
+    const url = `https://openlibrary.org${workKey}/editions.json?limit=${OPEN_LIBRARY_EDITIONS_LIMIT}`;
+    const response = await fetchFn(url);
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as {
+      entries?: OpenLibraryEdition[];
+    };
+
+    if (!data.entries || data.entries.length === 0) return null;
+
+    for (const entry of data.entries) {
+      if (entry.isbn_10) {
+        const found = entry.isbn_10.find(validateAsin);
+        if (found) return found;
+      }
     }
 
     return null;
