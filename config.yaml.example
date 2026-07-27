@@ -2,5 +2,8 @@ input: /path/to/audiobooks
 output: /path/to/output
 hardcover_api_key: ""
 dry_run: false
-llm_model: ""
+llm_model: "deepseek-v4-flash-free"
+llm_api_key: ""
+llm_api_base_url: "https://opencode.ai/zen/v1"
+concurrency: 1
 log_level: info
