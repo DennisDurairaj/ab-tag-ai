@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { slugify, formatBytes, ensureDir } from "../src/utils";
+import { slugify, formatBytes, ensureDir } from "../src/utils.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";

@@ -15,9 +15,6 @@ export interface Book {
   title: string;
   author: string;
   asin: string;
-  series?: string;
-  seriesPart?: number;
-  coverArt?: Buffer;
 }
 
 export interface BookSet {

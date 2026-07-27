@@ -69,6 +69,22 @@ function readM4bMetadata(filePath: string): AudioMetadata {
   }
 }
 
+function scanFiles(
+  filePaths: string[],
+  format: "mp3" | "m4b",
+  readMetadata: (path: string) => AudioMetadata
+): AudioFile[] {
+  const files: AudioFile[] = [];
+  for (const filePath of filePaths) {
+    let metadata = readMetadata(filePath);
+    if (Object.keys(metadata).length === 0) {
+      metadata = inferFromFilename(filePath);
+    }
+    files.push({ path: filePath, format, existingMetadata: metadata });
+  }
+  return files;
+}
+
 export function scanForAudioFiles(inputDir: string): AudioFile[] {
   console.log(`Scanning ${inputDir} for audio files...`);
 
@@ -80,23 +96,10 @@ export function scanForAudioFiles(inputDir: string): AudioFile[] {
   const mp3Files = globSync("**/*.mp3", { cwd: inputDir, absolute: true });
   const m4bFiles = globSync("**/*.m4b", { cwd: inputDir, absolute: true });
 
-  const files: AudioFile[] = [];
-
-  for (const filePath of mp3Files) {
-    let metadata = readMp3Metadata(filePath);
-    if (Object.keys(metadata).length === 0) {
-      metadata = inferFromFilename(filePath);
-    }
-    files.push({ path: filePath, format: "mp3", existingMetadata: metadata });
-  }
-
-  for (const filePath of m4bFiles) {
-    let metadata = readM4bMetadata(filePath);
-    if (Object.keys(metadata).length === 0) {
-      metadata = inferFromFilename(filePath);
-    }
-    files.push({ path: filePath, format: "m4b", existingMetadata: metadata });
-  }
+  const files = [
+    ...scanFiles(mp3Files, "mp3", readMp3Metadata),
+    ...scanFiles(m4bFiles, "m4b", readM4bMetadata),
+  ];
 
   console.log(`Found ${mp3Files.length} MP3 file(s) and ${m4bFiles.length} M4B file(s).`);
 
