@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { downloadAndResizeCover } from "../src/providers/cover-art.js";
+import { downloadAndResizeCover, findLocalCoverArt } from "../src/providers/cover-art.js";
 import { writeCoverArt } from "../src/utils.js";
 
 const VALID_JPEG_BASE64 = "/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCABkAGQDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAYI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AnQCOaRAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/2Q==";
@@ -193,5 +193,62 @@ describe("writeCoverArt", () => {
     expect(result).not.toBeNull();
     const contents = fs.readFileSync(path.join(bookDir, "cover.jpg"));
     expect(contents.equals(buffer)).toBe(true);
+  });
+});
+
+describe("findLocalCoverArt", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cover-local-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns null when source dir does not exist", async () => {
+    const result = await findLocalCoverArt(path.join(tmpDir, "nonexistent"));
+    expect(result).toBeNull();
+  });
+
+  it("returns null when no .jpg or .png found", async () => {
+    fs.writeFileSync(path.join(tmpDir, "readme.txt"), "hello");
+    fs.writeFileSync(path.join(tmpDir, "book.nfo"), "nfo");
+
+    const result = await findLocalCoverArt(tmpDir);
+    expect(result).toBeNull();
+  });
+
+  it("returns resized buffer when .jpg found in source dir", async () => {
+    const coverPath = path.join(tmpDir, "folder.jpg");
+    fs.writeFileSync(coverPath, createMockImageBuffer());
+
+    const result = await findLocalCoverArt(tmpDir);
+    expect(result).not.toBeNull();
+    expect(result).toBeInstanceOf(Buffer);
+  });
+
+  it("returns resized buffer when .png found in source dir", async () => {
+    const coverPath = path.join(tmpDir, "cover.png");
+    fs.writeFileSync(coverPath, createMockImageBuffer());
+
+    const result = await findLocalCoverArt(tmpDir);
+    expect(result).not.toBeNull();
+  });
+
+  it("returns null when image file is invalid", async () => {
+    fs.writeFileSync(path.join(tmpDir, "cover.jpg"), "not an image");
+
+    const result = await findLocalCoverArt(tmpDir);
+    expect(result).toBeNull();
+  });
+
+  it("picks the first .jpg/.png when multiple image files exist", async () => {
+    fs.writeFileSync(path.join(tmpDir, "a.jpg"), createMockImageBuffer());
+    fs.writeFileSync(path.join(tmpDir, "b.png"), createMockImageBuffer());
+
+    const result = await findLocalCoverArt(tmpDir);
+    expect(result).not.toBeNull();
   });
 });

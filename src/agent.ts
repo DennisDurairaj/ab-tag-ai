@@ -7,7 +7,7 @@ import { createAsinCache, acquireAsin, verifyAsin } from "./providers/asin.js";
 import { searchOpenLibraryAsin } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { fetchNextCandidate } from "./providers/metadata-resolver.js";
-import { downloadAndResizeCover } from "./providers/cover-art.js";
+import { downloadAndResizeCover, findLocalCoverArt } from "./providers/cover-art.js";
 import { tagMultiFileSet } from "./taggers/index.js";
 import { buildBookFolderPath, writeCoverArt, copyFilesToOutput } from "./utils.js";
 import { inferBook } from "./inference.js";
@@ -109,6 +109,9 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
   book.asin = asinResult.asin;
   console.log(`  ASIN: ${asinResult.asin} (${asinResult.source})`);
 
+  const sourceDir = bookSet.files.length > 0 ? path.dirname(bookSet.files[0].path) : null;
+  const localCover = sourceDir ? await findLocalCoverArt(sourceDir) : null;
+
   const result = await verifyWithRetry({
     identity: { title: book.title, author: book.author },
     existingMetadata: bookSet.files[0].existingMetadata,
@@ -131,13 +134,17 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
 
     const bookDir = buildBookFolderPath(config.output, metadata.author, metadata.title, metadata.series);
 
-    const coverArt = await downloadAndResizeCover({
+    const coverArt = localCover ?? await downloadAndResizeCover({
       coverUrl: metadata.coverUrl,
       coverId: metadata.coverId,
     });
     const coverPath = writeCoverArt(coverArt, bookDir);
     if (coverPath) {
-      console.log(`  Cover art written to ${coverPath}`);
+      if (localCover) {
+        console.log(`  Cover art copied from source directory`);
+      } else {
+        console.log(`  Cover art downloaded from provider`);
+      }
     }
 
     const copiedFiles = copyFilesToOutput(bookSet.files, bookDir);
