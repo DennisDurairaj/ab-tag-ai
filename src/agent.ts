@@ -96,7 +96,10 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
     hardcoverApiKey: config.hardcover_api_key,
     existingAsin: book.asin || undefined,
     searchOpenLibrary: searchOpenLibraryAsin,
-    searchHardcover: searchHardcoverAsin,
+    searchHardcover: async (identity, apiKey) => {
+      const result = await searchHardcoverAsin(identity, apiKey);
+      return result.asin;
+    },
     verifyAsinFn: (asin) => verifyAsin({ asin }),
   });
 

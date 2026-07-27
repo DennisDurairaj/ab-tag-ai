@@ -85,19 +85,25 @@ async function fetchFromHardcover(
   apiKey: string,
   fetchFn?: typeof fetch,
 ): Promise<ResolvedMetadata | null> {
-  const hcAsin = await searchHardcoverAsin(identity, apiKey, fetchFn);
-  if (!hcAsin) {
+  const hcResult = await searchHardcoverAsin(identity, apiKey, fetchFn);
+  if (!hcResult.asin) {
     await delay(1000);
     return null;
   }
 
-  const enriched = await tryAudnexusEnrichment(hcAsin, identity, fetchFn);
-  if (enriched) return enriched;
+  const enriched = await tryAudnexusEnrichment(hcResult.asin, identity, fetchFn);
+  if (enriched) {
+    if (hcResult.series) enriched.series = hcResult.series;
+    if (hcResult.seriesPart) enriched.seriesPart = hcResult.seriesPart;
+    return enriched;
+  }
 
   return {
     title: identity.title,
     author: identity.author,
-    asin: hcAsin,
+    asin: hcResult.asin,
+    series: hcResult.series,
+    seriesPart: hcResult.seriesPart,
   };
 }
 

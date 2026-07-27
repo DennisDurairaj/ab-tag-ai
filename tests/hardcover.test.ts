@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { searchHardcoverAsin } from "../src/providers/hardcover.js";
+import type { BookIdentity } from "../src/types.js";
 
 interface MockCall {
   url: string;
@@ -39,6 +40,7 @@ describe("searchHardcoverAsin", () => {
             books: [
               {
                 editions: [{ asin: "B000002IX7" }],
+                book_series: [],
               },
             ],
           },
@@ -51,7 +53,8 @@ describe("searchHardcoverAsin", () => {
       "test-key",
       mockFn,
     );
-    expect(result).toBe("B000002IX7");
+    expect(result.asin).toBe("B000002IX7");
+    expect(result.series).toBeUndefined();
 
     const searchBody = JSON.parse(calls[0].init?.body as string);
     expect(searchBody.query).toContain("search(");
@@ -80,9 +83,11 @@ describe("searchHardcoverAsin", () => {
             books: [
               {
                 editions: [{ asin: "INVALID" }, { asin: "B00B8LXTKW" }],
+                book_series: [],
               },
               {
                 editions: [{ asin: "B000002IX7" }],
+                book_series: [],
               },
             ],
           },
@@ -95,7 +100,7 @@ describe("searchHardcoverAsin", () => {
       "test-key",
       mockFn,
     );
-    expect(result).toBe("B00B8LXTKW");
+    expect(result.asin).toBe("B00B8LXTKW");
   });
 
   it("returns null when search finds no book IDs", async () => {
@@ -111,7 +116,8 @@ describe("searchHardcoverAsin", () => {
       "test-key",
       mockFn,
     );
-    expect(result).toBeNull();
+    expect(result.asin).toBeNull();
+    expect(result.series).toBeUndefined();
   });
 
   it("returns null when editions have no valid ASIN", async () => {
@@ -127,6 +133,7 @@ describe("searchHardcoverAsin", () => {
             books: [
               {
                 editions: [{ asin: null }, { asin: "INVALID" }],
+                book_series: [],
               },
             ],
           },
@@ -139,7 +146,7 @@ describe("searchHardcoverAsin", () => {
       "test-key",
       mockFn,
     );
-    expect(result).toBeNull();
+    expect(result.asin).toBeNull();
   });
 
   it("returns null on search HTTP error", async () => {
@@ -148,7 +155,7 @@ describe("searchHardcoverAsin", () => {
     ]);
 
     const result = await searchHardcoverAsin({ title: "Any", author: "Any" }, "test-key", mockFn);
-    expect(result).toBeNull();
+    expect(result.asin).toBeNull();
   });
 
   it("returns null on editions HTTP error", async () => {
@@ -158,7 +165,7 @@ describe("searchHardcoverAsin", () => {
     ]);
 
     const result = await searchHardcoverAsin({ title: "Any", author: "Any" }, "test-key", mockFn);
-    expect(result).toBeNull();
+    expect(result.asin).toBeNull();
   });
 
   it("returns null when fetch throws", async () => {
@@ -166,7 +173,7 @@ describe("searchHardcoverAsin", () => {
       throw new Error("Network failure");
     };
     const result = await searchHardcoverAsin({ title: "Any", author: "Any" }, "test-key", mockFn);
-    expect(result).toBeNull();
+    expect(result.asin).toBeNull();
   });
 
   it("includes the API key as a Bearer token", async () => {
@@ -199,5 +206,81 @@ describe("searchHardcoverAsin", () => {
     );
     const searchBody = JSON.parse(calls[0].init?.body as string);
     expect(searchBody.variables.query).toBe("The Hobbit J.R.R. Tolkien");
+  });
+
+  it("returns series name and position from book_series when available", async () => {
+    const { mockFn } = createMockFetch([
+      {
+        status: 200,
+        body: { data: { search: { ids: [328491] } } },
+      },
+      {
+        status: 200,
+        body: {
+          data: {
+            books: [
+              {
+                editions: [{ asin: "B000002IX7" }],
+                book_series: [
+                  {
+                    position: "1",
+                    series: { name: "Harry Potter" },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ]);
+
+    const result = await searchHardcoverAsin(
+      { title: "Harry Potter", author: "Rowling" },
+      "test-key",
+      mockFn,
+    );
+    expect(result.asin).toBe("B000002IX7");
+    expect(result.series).toBe("Harry Potter");
+    expect(result.seriesPart).toBe("1");
+  });
+
+  it("returns first book's series when multiple books match", async () => {
+    const { mockFn } = createMockFetch([
+      {
+        status: 200,
+        body: { data: { search: { ids: [1, 2] } } },
+      },
+      {
+        status: 200,
+        body: {
+          data: {
+            books: [
+              {
+                editions: [{ asin: null }],
+                book_series: [],
+              },
+              {
+                editions: [{ asin: "B000002IX7" }],
+                book_series: [
+                  {
+                    position: "3",
+                    series: { name: "The Dark Tower" },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ]);
+
+    const result = await searchHardcoverAsin(
+      { title: "The Waste Lands", author: "King" },
+      "test-key",
+      mockFn,
+    );
+    expect(result.asin).toBe("B000002IX7");
+    expect(result.series).toBe("The Dark Tower");
+    expect(result.seriesPart).toBe("3");
   });
 });

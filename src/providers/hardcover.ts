@@ -17,15 +17,47 @@ const EDITIONS_QUERY = `
       editions {
         asin
       }
+      book_series {
+        position
+        series {
+          name
+        }
+      }
     }
   }
 `;
+
+export interface HardcoverSearchResult {
+  asin: string | null;
+  series?: string;
+  seriesPart?: string;
+}
+
+function extractSeriesData(books: Array<{
+  book_series?: Array<{ position?: string | number | null; series?: { name?: string | null } | null }> | null;
+}> | undefined | null, index: number): { series?: string; seriesPart?: string } {
+  if (!books || index >= books.length) return {};
+
+  const book = books[index];
+  const seriesEntries = book?.book_series;
+  if (seriesEntries && seriesEntries.length > 0) {
+    const first = seriesEntries[0];
+    if (first?.series?.name) {
+      return {
+        series: first.series.name,
+        seriesPart: first.position != null ? String(first.position) : undefined,
+      };
+    }
+  }
+
+  return {};
+}
 
 export async function searchHardcoverAsin(
   identity: BookIdentity,
   apiKey: string,
   fetchFn: typeof fetch = fetch,
-): Promise<string | null> {
+): Promise<HardcoverSearchResult> {
   try {
     const query = `${identity.title} ${identity.author}`;
 
@@ -41,7 +73,7 @@ export async function searchHardcoverAsin(
       }),
     });
 
-    if (!searchResponse.ok) return null;
+    if (!searchResponse.ok) return { asin: null };
 
     const searchData = (await searchResponse.json()) as {
       data?: {
@@ -52,7 +84,7 @@ export async function searchHardcoverAsin(
     };
 
     const ids = searchData.data?.search?.ids;
-    if (!ids || ids.length === 0) return null;
+    if (!ids || ids.length === 0) return { asin: null };
 
     const editionsResponse = await fetchFn(HARDCOVER_API_URL, {
       method: "POST",
@@ -66,31 +98,37 @@ export async function searchHardcoverAsin(
       }),
     });
 
-    if (!editionsResponse.ok) return null;
+    if (!editionsResponse.ok) return { asin: null };
 
     const editionsData = (await editionsResponse.json()) as {
       data?: {
         books?: Array<{
           editions?: Array<{ asin?: string | null }>;
+          book_series?: Array<{
+            position?: string | number | null;
+            series?: { name?: string | null } | null;
+          }> | null;
         }>;
       };
     };
 
     const books = editionsData.data?.books;
-    if (!books) return null;
+    if (!books) return { asin: null };
 
-    for (const book of books) {
+    for (let i = 0; i < books.length; i++) {
+      const book = books[i];
       const editions = book.editions;
       if (!editions) continue;
       for (const edition of editions) {
         if (edition.asin && validateAsin(edition.asin)) {
-          return edition.asin;
+          const seriesData = extractSeriesData(books, i);
+          return { asin: edition.asin, ...seriesData };
         }
       }
     }
 
-    return null;
+    return { asin: null };
   } catch {
-    return null;
+    return { asin: null };
   }
 }

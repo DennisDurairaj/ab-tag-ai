@@ -126,7 +126,7 @@ describe("resolveMetadata", () => {
       },
       {
         status: 200,
-        body: { data: { books: [{ editions: [{ asin: "B000002IX7" }] }] } },
+        body: { data: { books: [{ editions: [{ asin: "B000002IX7" }], book_series: [] }] } },
       },
       { status: 200, body: AUDNEXUS_RESPONSE },
     ]);
@@ -210,6 +210,44 @@ describe("resolveMetadata", () => {
 
     expect(result.source).toBe("none");
     expect(result.metadata).toBeNull();
+  });
+
+  it("populates series and seriesPart from Hardcover when available", async () => {
+    const { mockFn } = createMockFetch([
+      { status: 200, body: { numFound: 0, docs: [] } },
+      {
+        status: 200,
+        body: { data: { search: { ids: [123] } } },
+      },
+      {
+        status: 200,
+        body: {
+          data: {
+            books: [{
+              editions: [{ asin: "B000002IX7" }],
+              book_series: [{
+                position: "1",
+                series: { name: "Harry Potter" },
+              }],
+            }],
+          },
+        },
+      },
+      { status: 200, body: AUDNEXUS_RESPONSE },
+    ]);
+
+    const result = await resolveMetadata({
+      identity: { title: "Harry Potter", author: "Rowling" },
+      asin: null,
+      hardcoverApiKey: "test-key",
+      fetchFn: mockFn,
+    });
+
+    expect(result.source).toBe("hardcover");
+    expect(result.metadata?.title).toBe("Project Hail Mary");
+    expect(result.metadata?.asin).toBe("B08G9PRS1K");
+    expect(result.metadata?.series).toBe("Harry Potter");
+    expect(result.metadata?.seriesPart).toBe("1");
   });
 
   it("does not search Hardcover when no API key", async () => {
