@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "./config.js";
-import type { BookSet, AudioFile, Book } from "./types.js";
+import type { BookSet, AudioFile, Book, BookIdentity } from "./types.js";
 import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
 import { createAsinCache, acquireAsin } from "./providers/asin.js";
+import { searchAudnexusAsin } from "./providers/audnexus.js";
 import { searchOpenLibraryAsin } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 
@@ -24,19 +25,24 @@ export async function processLibrary(config: Config): Promise<void> {
   asinCache.save();
 }
 
-function inferBook(files: AudioFile[]): Book {
+function inferBookIdentity(files: AudioFile[]): BookIdentity {
   const first = files[0];
   const meta = first.existingMetadata;
-  let title = meta.title || meta.album || "";
-  let author = meta.artist || "";
-  if (!title) {
-    title = first.path;
-  }
+  const title = meta.title || meta.album || path.basename(first.path, path.extname(first.path)).replace(/[_-]/g, " ").trim();
+  const author = meta.artist || "";
+  return { title, author };
+}
+
+function inferBook(files: AudioFile[]): Book {
+  const first = files[0];
+  const identity = inferBookIdentity(files);
+  const meta = first.existingMetadata;
+  const existingAsin = meta.asin && /^[A-Za-z0-9]{10}$/.test(meta.asin) ? meta.asin : "";
   return {
     path: first.path,
-    title,
-    author,
-    asin: "",
+    title: identity.title,
+    author: identity.author,
+    asin: existingAsin,
   };
 }
 
@@ -90,11 +96,11 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
   console.log(`Processing: ${book.title || "Unknown"}`);
 
   const result = await acquireAsin({
-    title: book.title,
-    author: book.author,
+    identity: { title: book.title, author: book.author },
     filePaths: bookSet.files.map((f) => f.path),
     cache,
     hardcoverApiKey: config.hardcover_api_key,
+    searchAudnexus: searchAudnexusAsin,
     searchOpenLibrary: searchOpenLibraryAsin,
     searchHardcover: searchHardcoverAsin,
   });

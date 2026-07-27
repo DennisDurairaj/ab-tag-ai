@@ -1,7 +1,13 @@
+export interface BookIdentity {
+  title: string;
+  author: string;
+}
+
 export interface AudioMetadata {
   title?: string;
   artist?: string;
   album?: string;
+  asin?: string;
 }
 
 export interface AudioFile {

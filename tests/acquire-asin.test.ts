@@ -11,17 +11,19 @@ function createMockCache(data: Record<string, string> = {}): AsinCache {
   };
 }
 
+const never = async () => null;
+
 describe("acquireAsin", () => {
   it("returns cached ASIN when available", async () => {
     const cache = createMockCache({ "The Hobbit/Tolkien": "B000002IX7" });
     const result = await acquireAsin({
-      title: "The Hobbit",
-      author: "Tolkien",
+      identity: { title: "The Hobbit", author: "Tolkien" },
       filePaths: [],
       cache,
       hardcoverApiKey: "",
-      searchOpenLibrary: async () => null,
-      searchHardcover: async () => null,
+      searchAudnexus: never,
+      searchOpenLibrary: never,
+      searchHardcover: never,
     });
     expect(result).toEqual({ asin: "B000002IX7", source: "cache" });
   });
@@ -29,13 +31,13 @@ describe("acquireAsin", () => {
   it("extracts ASIN from filename when not in cache", async () => {
     const cache = createMockCache();
     const result = await acquireAsin({
-      title: "The Hobbit",
-      author: "Tolkien",
+      identity: { title: "The Hobbit", author: "Tolkien" },
       filePaths: ["/books/B000002IX7.mp3"],
       cache,
       hardcoverApiKey: "",
-      searchOpenLibrary: async () => null,
-      searchHardcover: async () => null,
+      searchAudnexus: never,
+      searchOpenLibrary: never,
+      searchHardcover: never,
     });
     expect(result).toEqual({ asin: "B000002IX7", source: "filename" });
   });
@@ -49,41 +51,55 @@ describe("acquireAsin", () => {
       save() {},
     };
     await acquireAsin({
-      title: "The Hobbit",
-      author: "Tolkien",
+      identity: { title: "The Hobbit", author: "Tolkien" },
       filePaths: ["/books/B000002IX7.mp3"],
       cache,
       hardcoverApiKey: "",
-      searchOpenLibrary: async () => null,
-      searchHardcover: async () => null,
+      searchAudnexus: never,
+      searchOpenLibrary: never,
+      searchHardcover: never,
     });
     expect(savedKey).toBe("The Hobbit/Tolkien");
     expect(savedAsin).toBe("B000002IX7");
   });
 
-  it("searches Open Library when filename has no ASIN", async () => {
+  it("searches Audnexus first when nothing in cache", async () => {
     const cache = createMockCache();
     const result = await acquireAsin({
-      title: "The Hobbit",
-      author: "Tolkien",
+      identity: { title: "The Hobbit", author: "Tolkien" },
       filePaths: ["/books/the-hobbit.mp3"],
       cache,
       hardcoverApiKey: "",
+      searchAudnexus: async () => "AUDNEXUS001",
+      searchOpenLibrary: async () => "OPENLIB002",
+      searchHardcover: never,
+    });
+    expect(result).toEqual({ asin: "AUDNEXUS001", source: "audnexus" });
+  });
+
+  it("falls back to Open Library when Audnexus returns nothing", async () => {
+    const cache = createMockCache();
+    const result = await acquireAsin({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      filePaths: ["/books/the-hobbit.mp3"],
+      cache,
+      hardcoverApiKey: "",
+      searchAudnexus: never,
       searchOpenLibrary: async () => "B000002IX7",
-      searchHardcover: async () => null,
+      searchHardcover: never,
     });
     expect(result).toEqual({ asin: "B000002IX7", source: "open-library" });
   });
 
-  it("falls back to Hardcover when Open Library returns nothing", async () => {
+  it("falls back to Hardcover when Audnexus and Open Library return nothing", async () => {
     const cache = createMockCache();
     const result = await acquireAsin({
-      title: "The Hobbit",
-      author: "Tolkien",
+      identity: { title: "The Hobbit", author: "Tolkien" },
       filePaths: ["/books/the-hobbit.mp3"],
       cache,
       hardcoverApiKey: "test-key",
-      searchOpenLibrary: async () => null,
+      searchAudnexus: never,
+      searchOpenLibrary: never,
       searchHardcover: async () => "B00B8LXTKW",
     });
     expect(result).toEqual({ asin: "B00B8LXTKW", source: "hardcover" });
@@ -92,41 +108,41 @@ describe("acquireAsin", () => {
   it("returns null when all sources fail", async () => {
     const cache = createMockCache();
     const result = await acquireAsin({
-      title: "Unknown",
-      author: "Nobody",
+      identity: { title: "Unknown", author: "Nobody" },
       filePaths: ["/books/unknown.mp3"],
       cache,
       hardcoverApiKey: "test-key",
-      searchOpenLibrary: async () => null,
-      searchHardcover: async () => null,
+      searchAudnexus: never,
+      searchOpenLibrary: never,
+      searchHardcover: never,
     });
     expect(result).toEqual({ asin: null, source: "none" });
   });
 
-  it("tries Open Library before filename patterns", async () => {
+  it("tries Audnexus before filename patterns", async () => {
     const cache = createMockCache();
     const result = await acquireAsin({
-      title: "The Hobbit",
-      author: "Tolkien",
+      identity: { title: "The Hobbit", author: "Tolkien" },
       filePaths: ["/books/B000002IX7.mp3"],
       cache,
       hardcoverApiKey: "",
+      searchAudnexus: async () => "AUDNEXUS001",
       searchOpenLibrary: async () => "B00B8LXTKW",
-      searchHardcover: async () => null,
+      searchHardcover: never,
     });
-    expect(result).toEqual({ asin: "B00B8LXTKW", source: "open-library" });
+    expect(result).toEqual({ asin: "AUDNEXUS001", source: "audnexus" });
   });
 
-  it("falls back to filename when providers return nothing", async () => {
+  it("falls back to filename when all providers return nothing", async () => {
     const cache = createMockCache();
     const result = await acquireAsin({
-      title: "The Hobbit",
-      author: "Tolkien",
+      identity: { title: "The Hobbit", author: "Tolkien" },
       filePaths: ["/books/B000002IX7.mp3"],
       cache,
       hardcoverApiKey: "test-key",
-      searchOpenLibrary: async () => null,
-      searchHardcover: async () => null,
+      searchAudnexus: never,
+      searchOpenLibrary: never,
+      searchHardcover: never,
     });
     expect(result).toEqual({ asin: "B000002IX7", source: "filename" });
   });
@@ -134,13 +150,13 @@ describe("acquireAsin", () => {
   it("checks multiple file paths for ASIN in filename", async () => {
     const cache = createMockCache();
     const result = await acquireAsin({
-      title: "The Hobbit",
-      author: "Tolkien",
+      identity: { title: "The Hobbit", author: "Tolkien" },
       filePaths: ["/books/ch01.mp3", "/books/ch02.mp3", "/books/B000002IX7.mp3"],
       cache,
       hardcoverApiKey: "",
-      searchOpenLibrary: async () => null,
-      searchHardcover: async () => null,
+      searchAudnexus: never,
+      searchOpenLibrary: never,
+      searchHardcover: never,
     });
     expect(result).toEqual({ asin: "B000002IX7", source: "filename" });
   });
