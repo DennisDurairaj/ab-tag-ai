@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import yaml from "js-yaml";
+import type { LogLevel } from "./types.js";
 
 export interface Config {
   input: string;
@@ -7,7 +8,7 @@ export interface Config {
   hardcover_api_key: string;
   dry_run: boolean;
   llm_model: string;
-  log_level: string;
+  log_level: LogLevel;
 }
 
 const DEFAULT_CONFIG: Config = {

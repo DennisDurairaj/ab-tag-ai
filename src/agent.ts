@@ -1,6 +1,6 @@
 import type { Config } from "./config.js";
-import type { BookSet, AudioFile } from "./utils.js";
-import { scanForAudioFiles, detectMultiFileSets } from "./utils.js";
+import type { BookSet, AudioFile } from "./types.js";
+import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
 
 export async function processLibrary(config: Config): Promise<void> {
   const files = scanForAudioFiles(config.input);

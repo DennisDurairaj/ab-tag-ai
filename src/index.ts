@@ -38,7 +38,7 @@ async function main(): Promise<void> {
     for (const error of errors) {
       console.error(`  - ${error}`);
     }
-    process.exit(1);
+    program.help({ error: true });
   }
 
   if (config.dry_run) {

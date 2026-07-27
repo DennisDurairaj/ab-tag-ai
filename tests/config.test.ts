@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { loadConfig, mergeCliOverrides, validateConfig } from "../src/config";
 import fs from "node:fs";
 import path from "node:path";
@@ -43,7 +43,7 @@ describe("loadConfig", () => {
 
 describe("mergeCliOverrides", () => {
   it("CLI flags override config file values", () => {
-    const config = { input: "/config/input", output: "/config/output", dry_run: false, log_level: "info", hardcover_api_key: "", llm_model: "" };
+    const config = { input: "/config/input", output: "/config/output", dry_run: false, log_level: "info" as const, hardcover_api_key: "", llm_model: "" };
     const merged = mergeCliOverrides(config, { input: "/cli/input", dry_run: true });
     expect(merged.input).toBe("/cli/input");
     expect(merged.dry_run).toBe(true);
@@ -51,7 +51,7 @@ describe("mergeCliOverrides", () => {
   });
 
   it("does not override values not provided in CLI", () => {
-    const config = { input: "/config/input", output: "/config/output", dry_run: false, log_level: "info", hardcover_api_key: "", llm_model: "" };
+    const config = { input: "/config/input", output: "/config/output", dry_run: false, log_level: "info" as const, hardcover_api_key: "", llm_model: "" };
     const merged = mergeCliOverrides(config, { input: "/cli/input" });
     expect(merged.output).toBe("/config/output");
     expect(merged.log_level).toBe("info");
@@ -60,22 +60,22 @@ describe("mergeCliOverrides", () => {
 
 describe("validateConfig", () => {
   it("returns no errors for a valid config", () => {
-    const config = { input: "/input", output: "/output", hardcover_api_key: "", dry_run: false, llm_model: "", log_level: "info" };
+    const config = { input: "/input", output: "/output", hardcover_api_key: "", dry_run: false, llm_model: "", log_level: "info" as const };
     expect(validateConfig(config)).toEqual([]);
   });
 
   it("returns errors when input is missing", () => {
-    const config = { input: "", output: "/output", hardcover_api_key: "", dry_run: false, llm_model: "", log_level: "info" };
+    const config = { input: "", output: "/output", hardcover_api_key: "", dry_run: false, llm_model: "", log_level: "info" as const };
     expect(validateConfig(config)).toContain("input path is required");
   });
 
   it("returns errors when output is missing", () => {
-    const config = { input: "/input", output: "", hardcover_api_key: "", dry_run: false, llm_model: "", log_level: "info" };
+    const config = { input: "/input", output: "", hardcover_api_key: "", dry_run: false, llm_model: "", log_level: "info" as const };
     expect(validateConfig(config)).toContain("output path is required");
   });
 
   it("returns both errors when input and output are missing", () => {
-    const config = { input: "", output: "", hardcover_api_key: "", dry_run: false, llm_model: "", log_level: "info" };
+    const config = { input: "", output: "", hardcover_api_key: "", dry_run: false, llm_model: "", log_level: "info" as const };
     const errors = validateConfig(config);
     expect(errors).toContain("input path is required");
     expect(errors).toContain("output path is required");

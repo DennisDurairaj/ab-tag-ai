@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { scanForAudioFiles, detectMultiFileSets } from "../src/utils";
+import { scanForAudioFiles, detectMultiFileSets } from "../src/scanner";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -57,13 +57,24 @@ describe("scanForAudioFiles", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("returns files with empty existingMetadata when no ID3 tags present", () => {
+  it("infers metadata from filename when no ID3 tags present", () => {
     const tmpDir = makeTmpDir();
     touchFile(path.join(tmpDir, "book", "track.mp3"));
 
     const result = scanForAudioFiles(tmpDir);
     expect(result).toHaveLength(1);
-    expect(result[0].existingMetadata).toEqual({});
+    expect(result[0].existingMetadata).toEqual({ title: "track" });
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("infers author and title from filename with dash separator", () => {
+    const tmpDir = makeTmpDir();
+    touchFile(path.join(tmpDir, "Stephen King - It.mp3"));
+
+    const result = scanForAudioFiles(tmpDir);
+    expect(result).toHaveLength(1);
+    expect(result[0].existingMetadata).toEqual({ artist: "Stephen King", title: "It" });
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -93,7 +104,7 @@ describe("detectMultiFileSets", () => {
     const sets = detectMultiFileSets(files);
 
     expect(sets).toHaveLength(1);
-    expect(sets[0].prefix).toBe("The Hobbit -");
+    expect(sets[0].commonStem).toBe("The Hobbit -");
     expect(sets[0].files).toHaveLength(2);
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
