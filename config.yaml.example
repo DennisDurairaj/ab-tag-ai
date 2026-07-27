@@ -6,4 +6,7 @@ llm_model: "deepseek-v4-flash-free"
 llm_api_key: ""
 llm_api_base_url: "https://opencode.ai/zen/v1"
 concurrency: 1
+include:
+  # - "Peters, Elizabeth"
+  # - "Riordan, Rick"
 log_level: info

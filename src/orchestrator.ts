@@ -383,6 +383,7 @@ function executeFlagForReview(
       llm_api_key: ctx.config.apiKey || "",
       llm_api_base_url: ctx.config.apiBaseUrl || "",
       concurrency: 1,
+      include: [],
       log_level: "info",
     }, reason);
   }

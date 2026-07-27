@@ -11,6 +11,7 @@ export interface Config {
   llm_api_key: string;
   llm_api_base_url: string;
   concurrency: number;
+  include: string[];
   log_level: LogLevel;
 }
 
@@ -23,6 +24,7 @@ const DEFAULT_CONFIG: Config = {
   llm_api_key: "",
   llm_api_base_url: "",
   concurrency: 1,
+  include: [],
   log_level: "info",
 };
 
