@@ -137,6 +137,20 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
 
     const bookDir = buildBookFolderPath(config.output, metadata.author, metadata.title, metadata.series);
 
+    if (config.dry_run) {
+      console.log(`  [DRY-RUN] Would write cover art to ${bookDir}`);
+      if (localCover) {
+        console.log(`  [DRY-RUN] Would copy cover from source directory`);
+      } else if (metadata.coverUrl || (metadata.coverId && metadata.coverId > 0)) {
+        console.log(`  [DRY-RUN] Would download cover from provider`);
+      }
+      console.log(`  [DRY-RUN] Would copy ${bookSet.files.length} file(s) to ${bookDir}`);
+      const tagSummary = `album="${metadata.title}", artist="${metadata.author}"` +
+        (metadata.series ? `, series="${metadata.series}"` : "");
+      console.log(`  [DRY-RUN] Would tag with ${tagSummary}`);
+      return;
+    }
+
     const coverArt = localCover ?? await downloadAndResizeCover({
       coverUrl: metadata.coverUrl,
       coverId: metadata.coverId,
@@ -165,7 +179,14 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
   }
 }
 
-function flagForReview(book: Book, filePaths: string[], config: Config, reason: string): void {
+export function flagForReview(book: Book, filePaths: string[], config: Config, reason: string): void {
+  if (config.dry_run) {
+    const safeName = book.title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
+    const reviewPath = path.join(config.output, "review", `${safeName}.json`);
+    console.log(`  [DRY-RUN] Would write review to ${reviewPath}: ${reason}`);
+    return;
+  }
+
   const reviewDir = path.join(config.output, "review");
   fs.mkdirSync(reviewDir, { recursive: true });
   const safeName = book.title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";

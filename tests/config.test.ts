@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { loadConfig, mergeCliOverrides, validateConfig } from "../src/config.js";
+import { flagForReview } from "../src/agent.js";
+import type { Config } from "../src/config.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -152,5 +154,58 @@ describe("mergeCliOverrides — hardcover key", () => {
     const config = { input: "/in", output: "/out", dry_run: false, log_level: "info" as const, hardcover_api_key: "env-key", llm_model: "" };
     const merged = mergeCliOverrides(config, { hardcover_api_key: "cli-key" });
     expect(merged.hardcover_api_key).toBe("cli-key");
+  });
+});
+
+describe("dry-run enforcement", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function makeConfig(overrides: Partial<Config> = {}): Config {
+    return {
+      input: "/tmp/in",
+      output: "/tmp/out",
+      hardcover_api_key: "key",
+      dry_run: false,
+      llm_model: "test-model",
+      log_level: "info",
+      ...overrides,
+    };
+  }
+
+  it("flagForReview writes file when dry_run is false", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "audiobook-dryrun-test-"));
+    const config = makeConfig({ output: tmpDir, dry_run: false });
+    const reviewDir = path.join(tmpDir, "review");
+
+    flagForReview(
+      { path: "/tmp", title: "Test Book", author: "Author", asin: "B000" },
+      ["/tmp/test.mp3"],
+      config,
+      "Test reason",
+    );
+
+    expect(fs.existsSync(reviewDir)).toBe(true);
+    const files = fs.readdirSync(reviewDir);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toContain("Test_Book");
+  });
+
+  it("flagForReview does not write file when dry_run is true", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "audiobook-dryrun-test-"));
+    const config = makeConfig({ output: tmpDir, dry_run: true });
+
+    flagForReview(
+      { path: "/tmp", title: "Test Book", author: "Author", asin: "B000" },
+      ["/tmp/test.mp3"],
+      config,
+      "Test reason",
+    );
+
+    const reviewDir = path.join(tmpDir, "review");
+    expect(fs.existsSync(reviewDir)).toBe(false);
   });
 });
