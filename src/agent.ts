@@ -7,6 +7,9 @@ import { createAsinCache, acquireAsin, verifyAsin } from "./providers/asin.js";
 import { searchOpenLibraryAsin } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { fetchNextCandidate } from "./providers/metadata-resolver.js";
+import { downloadAndResizeCover } from "./providers/cover-art.js";
+import { tagMultiFileSet } from "./taggers/index.js";
+import { buildBookFolderPath, writeCoverArt, copyFilesToOutput } from "./utils.js";
 import { inferBook } from "./inference.js";
 import { createLlmVerifier } from "./verifier.js";
 import type { Verifier } from "./verifier.js";
@@ -125,6 +128,21 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
       console.log(`  Series: ${metadata.series} (${metadata.seriesPart})`);
     }
     console.log(`  Verifier: ${result.verdict.reason}`);
+
+    const bookDir = buildBookFolderPath(config.output, metadata.author, metadata.title, metadata.series);
+
+    const coverArt = await downloadAndResizeCover({
+      coverUrl: metadata.coverUrl,
+      coverId: metadata.coverId,
+    });
+    const coverPath = writeCoverArt(coverArt, bookDir);
+    if (coverPath) {
+      console.log(`  Cover art written to ${coverPath}`);
+    }
+
+    const copiedFiles = copyFilesToOutput(bookSet.files, bookDir);
+    tagMultiFileSet(copiedFiles, metadata, coverArt ?? undefined);
+    console.log(`  Copied and tagged ${copiedFiles.length} file(s) to ${bookDir}`);
     return;
   }
 

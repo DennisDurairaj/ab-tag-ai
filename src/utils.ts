@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { AudioFile } from "./types.js";
 
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -44,4 +45,13 @@ export function writeCoverArt(
   const coverPath = path.join(bookDir, "cover.jpg");
   fs.writeFileSync(coverPath, coverArt);
   return coverPath;
+}
+
+export function copyFilesToOutput(files: AudioFile[], outputDir: string): AudioFile[] {
+  ensureDir(outputDir);
+  return files.map((file) => {
+    const outputPath = path.join(outputDir, path.basename(file.path));
+    fs.copyFileSync(file.path, outputPath);
+    return { ...file, path: outputPath };
+  });
 }
