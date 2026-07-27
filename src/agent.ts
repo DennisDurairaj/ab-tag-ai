@@ -1,21 +1,22 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "./config.js";
-import type { BookSet, AudioFile, Book, BookIdentity } from "./types.js";
+import type { BookSet, AudioFile, Book } from "./types.js";
 import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
-import { createAsinCache, acquireAsin, verifyAsin, validateAsin } from "./providers/asin.js";
+import { createAsinCache, acquireAsin, verifyAsin } from "./providers/asin.js";
 import { searchOpenLibraryAsin } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { resolveMetadata } from "./providers/metadata-resolver.js";
 import { downloadAndResizeCover } from "./providers/cover-art.js";
 import { tagMultiFileSet } from "./taggers/index.js";
 import { buildBookFolderPath, writeCoverArt } from "./utils.js";
+import { inferBook } from "./inference.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
 export async function processLibrary(config: Config): Promise<void> {
   const files = scanForAudioFiles(config.input);
-  const bookSets = groupIntoBooks(files);
+  const bookSets = groupIntoBooks(files, config.input);
 
   printSummary(bookSets);
 
@@ -28,28 +29,7 @@ export async function processLibrary(config: Config): Promise<void> {
   asinCache.save();
 }
 
-function inferBookIdentity(files: AudioFile[]): BookIdentity {
-  const first = files[0];
-  const meta = first.existingMetadata;
-  const title = meta.title || meta.album || path.basename(first.path, path.extname(first.path)).replace(/[_-]/g, " ").trim();
-  const author = meta.artist || "";
-  return { title, author };
-}
-
-function inferBook(files: AudioFile[]): Book {
-  const first = files[0];
-  const identity = inferBookIdentity(files);
-  const meta = first.existingMetadata;
-  const existingAsin = meta.asin && validateAsin(meta.asin) ? meta.asin : "";
-  return {
-    path: first.path,
-    title: identity.title,
-    author: identity.author,
-    asin: existingAsin,
-  };
-}
-
-function groupIntoBooks(files: AudioFile[]): BookSet[] {
+function groupIntoBooks(files: AudioFile[], inputDir: string): BookSet[] {
   const sets = detectMultiFileSets(files);
   const result: BookSet[] = [];
 
@@ -61,13 +41,13 @@ function groupIntoBooks(files: AudioFile[]): BookSet[] {
   }
 
   for (const set of sets) {
-    const book = inferBook(set.files);
+    const book = inferBook(set.files, inputDir);
     result.push({ books: [book], files: set.files });
   }
 
   for (const file of files) {
     if (!multiFilePaths.has(file.path)) {
-      const book = inferBook([file]);
+      const book = inferBook([file], inputDir);
       result.push({ books: [book], files: [file] });
     }
   }
