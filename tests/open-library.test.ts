@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { searchOpenLibraryByIsbn } from "../src/providers/open-library.js";
+import { searchOpenLibraryByIsbn, searchOpenLibraryAsin } from "../src/providers/open-library.js";
 
 interface MockCall {
   url: string;
@@ -86,5 +86,126 @@ describe("searchOpenLibraryByIsbn", () => {
     };
     const result = await searchOpenLibraryByIsbn("9780544003415", mockFn);
     expect(result).toBeNull();
+  });
+});
+
+describe("searchOpenLibraryAsin", () => {
+  it("returns ISBN-10 when title+author search finds results", async () => {
+    const { mockFn, calls } = createMockFetch({
+      status: 200,
+      body: {
+        numFound: 1,
+        docs: [
+          {
+            key: "/works/OL27448W",
+            title: "The Hobbit",
+            author_name: ["J. R. R. Tolkien"],
+            isbn: ["0544003411", "9780544003415"],
+            cover_i: 258027,
+          },
+        ],
+      },
+    });
+
+    const result = await searchOpenLibraryAsin("The Hobbit", "Tolkien", mockFn);
+    expect(result).toBe("0544003411");
+
+    expect(calls[0].url).toContain("/search.json");
+    expect(calls[0].url).toContain("q=The");
+    expect(calls[0].url).toContain("Hobbit");
+    expect(calls[0].url).toContain("Tolkien");
+  });
+
+  it("returns null when no docs found", async () => {
+    const { mockFn } = createMockFetch({
+      status: 200,
+      body: { numFound: 0, docs: [] },
+    });
+
+    const result = await searchOpenLibraryAsin("Unknown Book", "Nobody", mockFn);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when docs have no ISBN", async () => {
+    const { mockFn } = createMockFetch({
+      status: 200,
+      body: {
+        numFound: 1,
+        docs: [
+          {
+            key: "/works/OL123W",
+            title: "Some Book",
+            author_name: ["Author"],
+          },
+        ],
+      },
+    });
+
+    const result = await searchOpenLibraryAsin("Some Book", "Author", mockFn);
+    expect(result).toBeNull();
+  });
+
+  it("skips ISBN-13 and returns first valid ISBN-10", async () => {
+    const { mockFn } = createMockFetch({
+      status: 200,
+      body: {
+        numFound: 1,
+        docs: [
+          {
+            key: "/works/OL123W",
+            title: "Some Book",
+            author_name: ["Author"],
+            isbn: ["9780544003415", "0544003411"],
+          },
+        ],
+      },
+    });
+
+    const result = await searchOpenLibraryAsin("Some Book", "Author", mockFn);
+    expect(result).toBe("0544003411");
+  });
+
+  it("returns null on HTTP error", async () => {
+    const { mockFn } = createMockFetch({
+      status: 500,
+      body: { error: "Server Error" },
+    });
+
+    const result = await searchOpenLibraryAsin("Any", "Any", mockFn);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when fetch throws", async () => {
+    const mockFn = async () => {
+      throw new Error("Network failure");
+    };
+    const result = await searchOpenLibraryAsin("Any", "Any", mockFn);
+    expect(result).toBeNull();
+  });
+
+  it("searches multiple docs for a valid ISBN-10", async () => {
+    const { mockFn } = createMockFetch({
+      status: 200,
+      body: {
+        numFound: 2,
+        docs: [
+          {
+            key: "/works/OL1W",
+            title: "Book One",
+            author_name: ["Author A"],
+            isbn: ["9780000000001"],
+          },
+          {
+            key: "/works/OL2W",
+            title: "Book Two",
+            author_name: ["Author B"],
+            isbn: ["B000002IX7"],
+          },
+        ],
+      },
+    });
+
+    const result = await searchOpenLibraryAsin("Book", "Author", mockFn);
+    expect(result).toBe("B000002IX7");
   });
 });

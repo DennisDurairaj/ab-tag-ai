@@ -1,3 +1,8 @@
+import { validateAsin } from "./asin.js";
+import { delay } from "../utils.js";
+
+const OPEN_LIBRARY_DELAY_MS = 1100;
+
 export interface OpenLibraryBook {
   key: string;
   title: string;
@@ -14,12 +19,40 @@ export interface OpenLibraryBook {
 export async function searchOpenLibraryAsin(
   title: string,
   author: string,
-  fetchFn?: typeof fetch,
+  fetchFn: typeof fetch = fetch,
 ): Promise<string | null> {
-  void title;
-  void author;
-  void fetchFn;
-  return null;
+  try {
+    const query = `${title} ${author}`;
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=key,title,author_name,isbn,cover_i&limit=5`;
+
+    const response = await fetchFn(url);
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as {
+      numFound: number;
+      docs?: Array<{
+        key: string;
+        title: string;
+        author_name?: string[];
+        isbn?: string[];
+        cover_i?: number;
+      }>;
+    };
+
+    if (!data.docs || data.docs.length === 0) return null;
+
+    for (const doc of data.docs) {
+      if (!doc.isbn) continue;
+      const found = doc.isbn.find(validateAsin);
+      if (found) return found;
+    }
+
+    return null;
+  } catch {
+    return null;
+  } finally {
+    await delay(OPEN_LIBRARY_DELAY_MS);
+  }
 }
 
 export async function searchOpenLibraryByIsbn(

@@ -16,11 +16,20 @@ export interface AudioFile {
   existingMetadata: AudioMetadata;
 }
 
-export interface Book {
-  path: string;
+export interface ResolvedMetadata {
   title: string;
   author: string;
   asin: string;
+  series?: string;
+  seriesPart?: string;
+  narrator?: string;
+  coverUrl?: string;
+  coverId?: number;
+  durationMinutes?: number;
+}
+
+export interface Book extends ResolvedMetadata {
+  path: string;
 }
 
 export interface BookSet {
