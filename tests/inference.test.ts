@@ -31,10 +31,10 @@ describe("inferBookIdentity", () => {
     expect(identity.title).toBe("Some Book");
   });
 
-  it("uses existing tag artist as author when present", () => {
-    const files = [mkFile("/input/Author/Book/file.mp3", { artist: "Tagged Author" })];
+  it("prefers folder-path author over tag artist (narrator in tag)", () => {
+    const files = [mkFile("/input/Author/Book/file.mp3", { artist: "Narrator Name" })];
     const identity = inferBookIdentity(files, "/input");
-    expect(identity.author).toBe("Tagged Author");
+    expect(identity.author).toBe("Author");
   });
 
   it("derives author from folder path when no tag artist", () => {
@@ -54,5 +54,11 @@ describe("inferBookIdentity", () => {
     const files = [mkFile("/input/file.mp3")];
     const identity = inferBookIdentity(files, "/input");
     expect(identity.author).toBe("");
+  });
+
+  it("falls back to album when title tag is whitespace only", () => {
+    const files = [mkFile("/input/Author/Book/file.mp3", { title: "  ", album: "Real Title" })];
+    const identity = inferBookIdentity(files, "/input");
+    expect(identity.title).toBe("Real Title");
   });
 });

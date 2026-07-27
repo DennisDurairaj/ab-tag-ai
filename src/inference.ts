@@ -16,8 +16,9 @@ export function inferBookIdentity(files: AudioFile[], inputDir: string): BookIde
   const isBookDir = path.resolve(fileDir) !== path.resolve(inputDir);
   const filenameStem = path.basename(first.path, path.extname(first.path)).replace(/[_-]/g, " ").trim();
 
-  const title = meta.title || meta.album || (isBookDir ? dirName : filenameStem);
-  const author = meta.artist || authorFromPath(inputDir, first.path);
+  const tagTitle = (meta.title || "").trim();
+  const title = tagTitle || meta.album || (isBookDir ? dirName : filenameStem);
+  const author = authorFromPath(inputDir, first.path) || meta.artist || "";
 
   return { title, author };
 }
