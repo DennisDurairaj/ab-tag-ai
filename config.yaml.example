@@ -1,0 +1,6 @@
+input: /path/to/audiobooks
+output: /path/to/output
+hardcover_api_key: ""
+dry_run: false
+llm_model: ""
+log_level: info

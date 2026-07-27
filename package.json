@@ -1,0 +1,36 @@
+{
+  "name": "audiobook-organizer",
+  "version": "0.1.0",
+  "description": "A TypeScript CLI tool that scans an input directory, resolves audiobook metadata via multiple book APIs, writes ID3/M4B tags, downloads cover art, and restructures files into an Audiobookshelf-compatible layout.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "audiobook-organizer": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "node-id3": "^0.2.9",
+    "sharp": "^0.33.5",
+    "ffprobe-static": "^3.1.0",
+    "js-yaml": "^4.1.0",
+    "commander": "^12.1.0",
+    "glob": "^11.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.2",
+    "vitest": "^3.1.2",
+    "@types/node": "^22.13.11",
+    "@types/js-yaml": "^4.0.9",
+    "eslint": "^9.17.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0"
+  }
+}
