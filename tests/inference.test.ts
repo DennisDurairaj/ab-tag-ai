@@ -7,16 +7,16 @@ function mkFile(filePath: string, meta: Record<string, string> = {}): AudioFile 
 }
 
 describe("inferBookIdentity", () => {
-  it("uses existing tag title when present", () => {
+  it("uses directory name as title over tag title (folder is ground truth)", () => {
     const files = [mkFile("/input/Author/Book/file.mp3", { title: "Tagged Title" })];
     const identity = inferBookIdentity(files, "/input");
-    expect(identity.title).toBe("Tagged Title");
+    expect(identity.title).toBe("Book");
   });
 
-  it("uses existing tag album as title when title is missing", () => {
+  it("uses directory name as title over tag album", () => {
     const files = [mkFile("/input/Author/Book/file.mp3", { album: "Tagged Album" })];
     const identity = inferBookIdentity(files, "/input");
-    expect(identity.title).toBe("Tagged Album");
+    expect(identity.title).toBe("Book");
   });
 
   it("uses directory name as title when no tags present", () => {
@@ -56,9 +56,27 @@ describe("inferBookIdentity", () => {
     expect(identity.author).toBe("");
   });
 
-  it("falls back to album when title tag is whitespace only", () => {
+  it("skips whitespace-only title and album, uses filename stem for direct input file", () => {
+    const files = [mkFile("/input/Some_Book.mp3", { title: "  ", album: "  " })];
+    const identity = inferBookIdentity(files, "/input");
+    expect(identity.title).toBe("Some Book");
+  });
+
+  it("skips whitespace-only album tag and falls through to trimmed title", () => {
+    const files = [mkFile("/input/Some_Book.mp3", { title: "Real Chapter ", album: "  " })];
+    const identity = inferBookIdentity(files, "/input");
+    expect(identity.title).toBe("Real Chapter");
+  });
+
+  it("skips whitespace-only artist tag", () => {
+    const files = [mkFile("/input/file.mp3", { artist: "  " })];
+    const identity = inferBookIdentity(files, "/input");
+    expect(identity.author).toBe("");
+  });
+
+  it("uses dirName even when tag has values (folder is ground truth)", () => {
     const files = [mkFile("/input/Author/Book/file.mp3", { title: "  ", album: "Real Title" })];
     const identity = inferBookIdentity(files, "/input");
-    expect(identity.title).toBe("Real Title");
+    expect(identity.title).toBe("Book");
   });
 });
