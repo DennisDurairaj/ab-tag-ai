@@ -5,6 +5,7 @@ services:
       - ${INPUT_DIR:-./input}:/input:ro
       - ${OUTPUT_DIR:-./output}:/output
       - ${CONFIG_FILE:-./config.yaml}:/app/config.yaml:ro
+    command: --config /app/config.yaml
 
   dry-run:
     image: ghcr.io/dennisdurairaj/ab-tag-ai:latest
@@ -13,4 +14,4 @@ services:
       - ${INPUT_DIR:-./input}:/input:ro
       - ${OUTPUT_DIR:-./output}:/output
       - ${CONFIG_FILE:-./config.yaml}:/app/config.yaml:ro
-    command: --dry-run
+    command: --config /app/config.yaml --dry-run
