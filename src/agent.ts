@@ -6,6 +6,9 @@ import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
 import { createAsinCache, acquireAsin, verifyAsin } from "./providers/asin.js";
 import { searchOpenLibraryAsin } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
+import { resolveMetadata } from "./providers/metadata-resolver.js";
+import { downloadAndResizeCover } from "./providers/cover-art.js";
+import { tagMultiFileSet } from "./taggers/index.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
@@ -99,7 +102,7 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
 
   console.log(`Processing: ${book.title || "Unknown"}`);
 
-  const result = await acquireAsin({
+  const asinResult = await acquireAsin({
     identity: { title: book.title, author: book.author },
     filePaths: bookSet.files.map((f) => f.path),
     cache,
@@ -110,13 +113,45 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
     verifyAsinFn: (asin, identity) => verifyAsin({ asin, identity }),
   });
 
-  if (result.asin) {
-    book.asin = result.asin;
-    console.log(`  ASIN: ${result.asin} (${result.source})`);
-  } else {
+  if (!asinResult.asin) {
     console.log(`  No ASIN found - flagged for manual review`);
     flagForReview(book, bookSet.files.map((f) => f.path), config);
+    return;
   }
+
+  book.asin = asinResult.asin;
+  console.log(`  ASIN: ${asinResult.asin} (${asinResult.source})`);
+
+  const metadataResult = await resolveMetadata({
+    identity: { title: book.title, author: book.author },
+    asin: asinResult.asin,
+    hardcoverApiKey: config.hardcover_api_key,
+  });
+
+  if (!metadataResult.metadata) {
+    console.log(`  Could not resolve metadata - flagged for manual review`);
+    flagForReview(book, bookSet.files.map((f) => f.path), config);
+    return;
+  }
+
+  const metadata = metadataResult.metadata;
+  console.log(`  Title: ${metadata.title}`);
+  console.log(`  Author: ${metadata.author}`);
+  if (metadata.series) {
+    console.log(`  Series: ${metadata.series} (${metadata.seriesPart})`);
+  }
+
+  const coverArt = await downloadAndResizeCover({
+    coverUrl: metadata.coverUrl,
+    coverId: metadata.coverId,
+  });
+
+  if (coverArt) {
+    console.log(`  Cover art downloaded (${coverArt.length} bytes)`);
+  }
+
+  tagMultiFileSet(bookSet.files, metadata, coverArt ?? undefined);
+  console.log(`  Tags written to ${bookSet.files.length} file(s)`);
 }
 
 function flagForReview(book: Book, filePaths: string[], config: Config): void {
