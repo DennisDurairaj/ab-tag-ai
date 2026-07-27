@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import id3 from "node-id3";
 import type { AudioFile, ResolvedMetadata } from "../types.js";
 
@@ -73,6 +74,30 @@ export function writeId3Tags(filePath: string, options: Id3TagOptions): boolean 
   }
 }
 
+export function writeFfmetadata(filePath: string, options: Id3TagOptions): boolean {
+  if (!fs.existsSync(filePath)) return false;
+
+  const tmpPath = filePath + ".tmp.m4b";
+  const args = [
+    "-i", filePath,
+    "-metadata", `title=${options.title}`,
+    "-metadata", `album=${options.album}`,
+    "-metadata", `artist=${options.artist}`,
+    "-metadata", `track=${options.trackNumber}`,
+  ];
+
+  args.push("-codec", "copy", tmpPath, "-y");
+
+  try {
+    execFileSync("ffmpeg", args, { stdio: "ignore" });
+    fs.renameSync(tmpPath, filePath);
+    return true;
+  } catch {
+    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    return false;
+  }
+}
+
 export function tagMultiFileSet(
   files: AudioFile[],
   metadata: ResolvedMetadata,
@@ -83,7 +108,7 @@ export function tagMultiFileSet(
   for (const file of trackedFiles) {
     const fileTitle = file.existingMetadata.title || path.basename(file.path, path.extname(file.path));
 
-    writeId3Tags(file.path, {
+    const options: Id3TagOptions = {
       title: fileTitle,
       album: metadata.title,
       artist: metadata.author,
@@ -91,6 +116,12 @@ export function tagMultiFileSet(
       series: metadata.series,
       seriesPart: metadata.seriesPart,
       coverArt,
-    });
+    };
+
+    if (file.format === "m4b") {
+      writeFfmetadata(file.path, options);
+    } else {
+      writeId3Tags(file.path, options);
+    }
   }
 }

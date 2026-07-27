@@ -2,10 +2,12 @@ import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { execSync } from "node:child_process";
 import id3 from "node-id3";
 import {
   tagMultiFileSet,
   writeId3Tags,
+  writeFfmetadata,
   assignTrackNumbers,
 } from "../src/taggers/index.js";
 import type { AudioFile, ResolvedMetadata } from "../src/types.js";
@@ -300,5 +302,130 @@ describe("tagMultiFileSet", () => {
     const tags = id3.read(files[0].path);
     expect(tags.album).toBe("The Complete Book");
     expect(tags.title).toBe("Book - 01");
+  });
+});
+
+function createDummyM4b(filePath: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  execSync(
+    `ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1 -c:a aac "${filePath}" -y`,
+    { stdio: "ignore" },
+  );
+}
+
+function readM4bTags(filePath: string): Record<string, string> {
+  const output = execSync(
+    `ffprobe -v quiet -print_format json -show_format "${filePath}"`,
+    { encoding: "utf-8" },
+  );
+  const parsed = JSON.parse(output);
+  return (parsed.format?.tags || {}) as Record<string, string>;
+}
+
+function makeM4bFile(filePath: string): AudioFile {
+  return {
+    path: filePath,
+    format: "m4b" as const,
+    existingMetadata: {},
+  };
+}
+
+describe("writeFfmetadata", () => {
+  it("writes basic tags to an M4B file", () => {
+    setupTmpDir();
+    const filePath = path.join(tmpDir, "test.m4b");
+    createDummyM4b(filePath);
+
+    const result = writeFfmetadata(filePath, {
+      title: "Chapter One",
+      album: "Test Book",
+      artist: "Test Author",
+      trackNumber: "1",
+    });
+
+    expect(result).toBe(true);
+
+    const tags = readM4bTags(filePath);
+    expect(tags.title).toBe("Chapter One");
+    expect(tags.album).toBe("Test Book");
+    expect(tags.artist).toBe("Test Author");
+    expect(tags.track).toBe("1");
+  });
+
+  it("returns false for non-existent file", () => {
+    const result = writeFfmetadata("/nonexistent/file.m4b", {
+      title: "Test",
+      album: "Test",
+      artist: "Test",
+      trackNumber: "1",
+    });
+
+    expect(result).toBe(false);
+  });
+});
+
+describe("tagMultiFileSet — M4B dispatch", () => {
+  it("tags M4B files via ffmpeg instead of node-id3", () => {
+    setupTmpDir();
+    const filePath = path.join(tmpDir, "audiobook.m4b");
+    createDummyM4b(filePath);
+
+    const files: AudioFile[] = [makeM4bFile(filePath)];
+    const metadata = makeResolvedMetadata({
+      title: "The Great Book",
+      author: "Great Author",
+    });
+
+    tagMultiFileSet(files, metadata);
+
+    const tags = readM4bTags(filePath);
+    expect(tags.album).toBe("The Great Book");
+    expect(tags.artist).toBe("Great Author");
+  });
+
+  it("tags multi-file M4B set with shared album and sequential track numbers", () => {
+    setupTmpDir();
+    const file1 = path.join(tmpDir, "book-01.m4b");
+    const file2 = path.join(tmpDir, "book-02.m4b");
+    createDummyM4b(file1);
+    createDummyM4b(file2);
+
+    const files: AudioFile[] = [makeM4bFile(file1), makeM4bFile(file2)];
+    const metadata = makeResolvedMetadata({
+      title: "The Complete Book",
+      author: "Test Author",
+    });
+
+    tagMultiFileSet(files, metadata);
+
+    const tags1 = readM4bTags(file1);
+    const tags2 = readM4bTags(file2);
+
+    expect(tags1.album).toBe("The Complete Book");
+    expect(tags2.album).toBe("The Complete Book");
+    expect(tags1.track).toBe("1");
+    expect(tags2.track).toBe("2");
+  });
+
+  it("uses per-file titles from existing metadata for M4B", () => {
+    setupTmpDir();
+    const filePath = path.join(tmpDir, "audiobook.m4b");
+    createDummyM4b(filePath);
+
+    const files: AudioFile[] = [
+      {
+        path: filePath,
+        format: "m4b",
+        existingMetadata: { title: "Chapter One: The Beginning" },
+      },
+    ];
+
+    const metadata = makeResolvedMetadata({ title: "The Complete Book" });
+
+    tagMultiFileSet(files, metadata);
+
+    const tags = readM4bTags(filePath);
+    expect(tags.title).toBe("Chapter One: The Beginning");
+    expect(tags.album).toBe("The Complete Book");
   });
 });
