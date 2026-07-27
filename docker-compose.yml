@@ -1,25 +1,16 @@
 services:
   organize:
-    image: ab-tag-ai:latest
-    environment:
-      - LLM_API_KEY=${LLM_API_KEY:-}
-      - LLM_API_BASE_URL=${LLM_API_BASE_URL:-https://opencode.ai/zen/v1}
-      - HARDCOVER_API_KEY=${HARDCOVER_API_KEY:-}
+    image: ghcr.io/dennisdurairaj/ab-tag-ai:latest
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
       - ${INPUT_DIR:-./input}:/input:ro
       - ${OUTPUT_DIR:-./output}:/output
-    command: --input /input --output /output
+      - ${CONFIG_FILE:-./config.yaml}:/app/config.yaml:ro
 
   dry-run:
-    image: ab-tag-ai:latest
+    image: ghcr.io/dennisdurairaj/ab-tag-ai:latest
     profiles: [check]
-    environment:
-      - LLM_API_KEY=${LLM_API_KEY:-}
-      - LLM_API_BASE_URL=${LLM_API_BASE_URL:-https://opencode.ai/zen/v1}
-      - HARDCOVER_API_KEY=${HARDCOVER_API_KEY:-}
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
       - ${INPUT_DIR:-./input}:/input:ro
       - ${OUTPUT_DIR:-./output}:/output
-    command: --input /input --output /output --dry-run
+      - ${CONFIG_FILE:-./config.yaml}:/app/config.yaml:ro
+    command: --dry-run
