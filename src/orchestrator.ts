@@ -382,6 +382,7 @@ function executeFlagForReview(
       llm_model: ctx.config.model,
       llm_api_key: ctx.config.apiKey || "",
       llm_api_base_url: ctx.config.apiBaseUrl || "",
+      concurrency: 1,
       log_level: "info",
     }, reason);
   }
@@ -460,22 +461,33 @@ export function createOrchestrator(config: OrchestratorConfig) {
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       console.error(`  [Round ${iteration + 1}/${MAX_ITERATIONS}]`);
-      const response = await fetchFn(`${apiBaseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          tools: TOOLS,
-          tool_choice: "auto",
-        }),
-      });
 
-      if (!response.ok) {
-        return { status: "flagged", reason: `LLM API error: ${response.status}` };
+      let response: Response | undefined;
+      let retryDelay = 1000;
+      for (let retry = 0; retry < 3; retry++) {
+        if (retry > 0) {
+          console.error(`  [Retry ${retry}/3 after ${retryDelay}ms]`);
+          await new Promise((r) => setTimeout(r, retryDelay));
+          retryDelay *= 2;
+        }
+        response = await fetchFn(`${apiBaseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            tools: TOOLS,
+            tool_choice: "auto",
+          }),
+        });
+        if (response.status !== 429) break;
+      }
+
+      if (!response || !response.ok) {
+        return { status: "flagged", reason: `LLM API error: ${response?.status || "unknown"}` };
       }
 
       const data = await response.json() as {

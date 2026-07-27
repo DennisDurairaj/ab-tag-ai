@@ -16,6 +16,7 @@ async function main(): Promise<void> {
     .option("--hardcover-key <key>", "Hardcover API key")
     .option("--llm-key <key>", "LLM API key")
     .option("--llm-base-url <url>", "LLM API base URL")
+    .option("--concurrency <n>", "Number of books to process in parallel", "4")
     .option("--dry-run", "Preview changes without writing to disk", false)
     .option("--log-level <level>", "Logging level (debug, info, warn, error)", "info")
     .parse(process.argv);
@@ -33,6 +34,7 @@ async function main(): Promise<void> {
   if (options.logLevel) cliOverrides.log_level = options.logLevel;
   if (options.llmKey) cliOverrides.llm_api_key = options.llmKey;
   if (options.llmBaseUrl) cliOverrides.llm_api_base_url = options.llmBaseUrl;
+  if (options.concurrency) cliOverrides.concurrency = Number(options.concurrency);
 
   config = mergeCliOverrides(config, cliOverrides as Partial<typeof config>);
 

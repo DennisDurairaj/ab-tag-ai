@@ -26,11 +26,39 @@ export async function processLibrary(config: Config): Promise<void> {
     cache: asinCache,
   });
 
-  for (const bookSet of bookSets) {
-    await processBook(bookSet, config, orchestrateBook);
-  }
+  const concurrency = Math.max(1, config.concurrency);
+  await processWithConcurrency(bookSets, concurrency, (bookSet) =>
+    processBook(bookSet, config, orchestrateBook)
+  );
 
   asinCache.save();
+}
+
+async function processWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  const queue = [...items];
+  let active = 0;
+  let index = 0;
+
+  return new Promise((resolve) => {
+    function next() {
+      while (active < concurrency && index < queue.length) {
+        const item = queue[index++];
+        active++;
+        fn(item).finally(() => {
+          active--;
+          next();
+        });
+      }
+      if (active === 0 && index >= queue.length) {
+        resolve();
+      }
+    }
+    next();
+  });
 }
 
 function groupIntoBooks(files: AudioFile[], inputDir: string): BookSet[] {
