@@ -47,8 +47,51 @@ export function writeCoverArt(
   return coverPath;
 }
 
+const SYNOPSIS_PATTERN = /synopsis/i;
+
+const SIDECAR_RULES: Record<string, "useful" | "junk"> = {
+  ".nfo": "useful",
+  ".cue": "useful",
+  ".json": "useful",
+  ".txt": "junk",
+  "desktop.ini": "junk",
+  "icon.ico": "junk",
+};
+
+export type SidecarVerdict = "useful" | "junk" | null;
+
+export function classifySidecar(filename: string): SidecarVerdict {
+  const lower = filename.toLowerCase();
+  const ext = path.extname(lower);
+
+  if (SYNOPSIS_PATTERN.test(path.basename(lower, ext))) return "useful";
+
+  return SIDECAR_RULES[ext] ?? SIDECAR_RULES[lower] ?? null;
+}
+
+function copySidecarFiles(sourceDir: string, outputDir: string): void {
+  if (!fs.existsSync(sourceDir)) return;
+
+  const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+
+    const verdict = classifySidecar(entry.name);
+    if (verdict === "useful") {
+      fs.copyFileSync(path.join(sourceDir, entry.name), path.join(outputDir, entry.name));
+    }
+  }
+}
+
 export function copyFilesToOutput(files: AudioFile[], outputDir: string): AudioFile[] {
   ensureDir(outputDir);
+
+  if (files.length > 0) {
+    const sourceDir = path.dirname(files[0].path);
+    copySidecarFiles(sourceDir, outputDir);
+  }
+
   return files.map((file) => {
     const outputPath = path.join(outputDir, path.basename(file.path));
     fs.copyFileSync(file.path, outputPath);

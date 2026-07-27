@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { ensureDir, buildBookFolderPath, writeCoverArt, copyFilesToOutput } from "../src/utils.js";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { ensureDir, buildBookFolderPath, writeCoverArt, copyFilesToOutput, classifySidecar } from "../src/utils.js";
 import { tagMultiFileSet } from "../src/taggers/index.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -158,5 +158,154 @@ describe("copyFilesToOutput", () => {
     expect(copied).toHaveLength(2);
     expect(fs.existsSync(path.join(bookDir, "ch01.mp3"))).toBe(true);
     expect(fs.existsSync(path.join(bookDir, "ch02.mp3"))).toBe(true);
+  });
+});
+
+describe("classifySidecar", () => {
+  it("returns useful for .nfo files", () => {
+    expect(classifySidecar("book.nfo")).toBe("useful");
+    expect(classifySidecar("BOOK.NFO")).toBe("useful");
+    expect(classifySidecar("My Book.NFO")).toBe("useful");
+  });
+
+  it("returns useful for .cue files", () => {
+    expect(classifySidecar("book.cue")).toBe("useful");
+    expect(classifySidecar("BOOK.cue")).toBe("useful");
+  });
+
+  it("returns useful for .json files", () => {
+    expect(classifySidecar("book.json")).toBe("useful");
+    expect(classifySidecar("metadata.json")).toBe("useful");
+  });
+
+  it("returns useful for synopsis files", () => {
+    expect(classifySidecar("synopsis.txt")).toBe("useful");
+    expect(classifySidecar("Synopsis.pdf")).toBe("useful");
+    expect(classifySidecar("my synopsis doc.txt")).toBe("useful");
+    expect(classifySidecar("SYNOPSIS")).toBe("useful");
+  });
+
+  it("returns junk for .txt files", () => {
+    expect(classifySidecar("readme.txt")).toBe("junk");
+    expect(classifySidecar("support.txt")).toBe("junk");
+  });
+
+  it("returns junk for desktop.ini", () => {
+    expect(classifySidecar("desktop.ini")).toBe("junk");
+    expect(classifySidecar("Desktop.ini")).toBe("junk");
+  });
+
+  it("returns junk for Icon.ico", () => {
+    expect(classifySidecar("Icon.ico")).toBe("junk");
+    expect(classifySidecar("icon.ico")).toBe("junk");
+  });
+
+  it("returns null for unrelated files", () => {
+    expect(classifySidecar("book.jpg")).toBe(null);
+    expect(classifySidecar("chapter01.mp3")).toBe(null);
+    expect(classifySidecar("cover.png")).toBe(null);
+    expect(classifySidecar("random.file")).toBe(null);
+  });
+});
+
+describe("copyFilesToOutput sidecar behavior", () => {
+  let tmpDir: string;
+  let sourceDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "audiobook-sidecar-test-"));
+    sourceDir = path.join(tmpDir, "input", "Author", "Book");
+    fs.mkdirSync(sourceDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("copies useful sidecar files alongside audio", () => {
+    createDummyMp3(path.join(sourceDir, "ch01.mp3"));
+    fs.writeFileSync(path.join(sourceDir, "book.nfo"), "NFO content");
+    fs.writeFileSync(path.join(sourceDir, "book.cue"), "CUE content");
+    fs.writeFileSync(path.join(sourceDir, "metadata.json"), '{"key":"val"}');
+
+    const files: AudioFile[] = [{
+      path: path.join(sourceDir, "ch01.mp3"),
+      format: "mp3",
+      existingMetadata: {},
+    }];
+    const bookDir = path.join(tmpDir, "output", "Author", "Book");
+
+    copyFilesToOutput(files, bookDir);
+
+    expect(fs.existsSync(path.join(bookDir, "ch01.mp3"))).toBe(true);
+    expect(fs.existsSync(path.join(bookDir, "book.nfo"))).toBe(true);
+    expect(fs.readFileSync(path.join(bookDir, "book.nfo"), "utf-8")).toBe("NFO content");
+    expect(fs.existsSync(path.join(bookDir, "book.cue"))).toBe(true);
+    expect(fs.existsSync(path.join(bookDir, "metadata.json"))).toBe(true);
+  });
+
+  it("does not copy junk sidecar files", () => {
+    createDummyMp3(path.join(sourceDir, "ch01.mp3"));
+    fs.writeFileSync(path.join(sourceDir, "readme.txt"), "ignore me");
+    fs.writeFileSync(path.join(sourceDir, "desktop.ini"), "junk");
+    fs.writeFileSync(path.join(sourceDir, "Icon.ico"), "icon bytes");
+
+    const files: AudioFile[] = [{
+      path: path.join(sourceDir, "ch01.mp3"),
+      format: "mp3",
+      existingMetadata: {},
+    }];
+    const bookDir = path.join(tmpDir, "output", "Author", "Book");
+
+    copyFilesToOutput(files, bookDir);
+
+    expect(fs.existsSync(path.join(bookDir, "ch01.mp3"))).toBe(true);
+    expect(fs.existsSync(path.join(bookDir, "readme.txt"))).toBe(false);
+    expect(fs.existsSync(path.join(bookDir, "desktop.ini"))).toBe(false);
+    expect(fs.existsSync(path.join(bookDir, "Icon.ico"))).toBe(false);
+  });
+
+  it("copies only useful sidecars from a dir with mixed files", () => {
+    createDummyMp3(path.join(sourceDir, "ch01.mp3"));
+    fs.writeFileSync(path.join(sourceDir, "book.nfo"), "nfo");
+    fs.writeFileSync(path.join(sourceDir, "synopsis.txt"), "synopsis text");
+    fs.writeFileSync(path.join(sourceDir, "readme.txt"), "readme");
+    fs.writeFileSync(path.join(sourceDir, "desktop.ini"), "ini");
+    fs.writeFileSync(path.join(sourceDir, "cover.jpg"), "not sidecar");
+    fs.writeFileSync(path.join(sourceDir, "random.doc"), "not sidecar");
+
+    const files: AudioFile[] = [{
+      path: path.join(sourceDir, "ch01.mp3"),
+      format: "mp3",
+      existingMetadata: {},
+    }];
+    const bookDir = path.join(tmpDir, "output", "Author", "Book");
+
+    copyFilesToOutput(files, bookDir);
+
+    expect(fs.existsSync(path.join(bookDir, "ch01.mp3"))).toBe(true);
+    expect(fs.existsSync(path.join(bookDir, "book.nfo"))).toBe(true);
+    expect(fs.existsSync(path.join(bookDir, "synopsis.txt"))).toBe(true);
+    expect(fs.existsSync(path.join(bookDir, "readme.txt"))).toBe(false);
+    expect(fs.existsSync(path.join(bookDir, "desktop.ini"))).toBe(false);
+    expect(fs.existsSync(path.join(bookDir, "cover.jpg"))).toBe(false);
+    expect(fs.existsSync(path.join(bookDir, "random.doc"))).toBe(false);
+  });
+
+  it("handles source dir with no sidecars", () => {
+    createDummyMp3(path.join(sourceDir, "ch01.mp3"));
+
+    const files: AudioFile[] = [{
+      path: path.join(sourceDir, "ch01.mp3"),
+      format: "mp3",
+      existingMetadata: {},
+    }];
+    const bookDir = path.join(tmpDir, "output", "Author", "Book");
+
+    expect(() => copyFilesToOutput(files, bookDir)).not.toThrow();
+
+    expect(fs.existsSync(path.join(bookDir, "ch01.mp3"))).toBe(true);
+    const entries = fs.readdirSync(bookDir);
+    expect(entries).toHaveLength(1);
   });
 });
