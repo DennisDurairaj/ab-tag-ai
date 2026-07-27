@@ -155,10 +155,16 @@ export function detectMultiFileSets(files: AudioFile[]): MultiFileSet[] {
     if (dirFiles.length < 2) continue;
 
     const grouped = groupByStem(dirFiles);
+    let hasGroup = false;
     for (const [stem, group] of grouped) {
       if (group.length >= 2) {
         sets.push({ commonStem: stem, files: group, directory: dir });
+        hasGroup = true;
       }
+    }
+
+    if (!hasGroup) {
+      sets.push({ commonStem: path.basename(dir), files: dirFiles, directory: dir });
     }
   }
 

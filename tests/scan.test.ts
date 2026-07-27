@@ -122,4 +122,37 @@ describe("detectMultiFileSets", () => {
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  it("falls back to directory name when stem patterns don't match", () => {
+    const tmpDir = makeTmpDir();
+    const bookDir = path.join(tmpDir, "Trojan Gold");
+    touchFile(path.join(bookDir, "57300_001_IN.mp3"));
+    touchFile(path.join(bookDir, "57300_002_C001.mp3"));
+    touchFile(path.join(bookDir, "57300_PRE.mp3"));
+
+    const files = scanForAudioFiles(tmpDir);
+    const sets = detectMultiFileSets(files);
+
+    expect(sets).toHaveLength(1);
+    expect(sets[0].commonStem).toBe("Trojan Gold");
+    expect(sets[0].files).toHaveLength(3);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("still groups by stem when prefix patterns match", () => {
+    const tmpDir = makeTmpDir();
+    touchFile(path.join(tmpDir, "The Hobbit - 01.mp3"));
+    touchFile(path.join(tmpDir, "The Hobbit - 02.mp3"));
+    touchFile(path.join(tmpDir, "57300_001_IN.mp3"));  // unrelated, should be excluded
+
+    const files = scanForAudioFiles(tmpDir);
+    const sets = detectMultiFileSets(files);
+
+    expect(sets).toHaveLength(1);  // only the stem-matched group
+    expect(sets[0].commonStem).toBe("The Hobbit -");
+    expect(sets[0].files).toHaveLength(2);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 });
