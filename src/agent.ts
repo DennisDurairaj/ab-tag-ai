@@ -102,9 +102,11 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
 
   console.log(`Processing: ${book.title || "Unknown"}`);
 
+  const filePaths = bookSet.files.map((f) => f.path);
+
   const asinResult = await acquireAsin({
     identity: { title: book.title, author: book.author },
-    filePaths: bookSet.files.map((f) => f.path),
+    filePaths,
     cache,
     hardcoverApiKey: config.hardcover_api_key,
     existingAsin: book.asin || undefined,
@@ -115,7 +117,7 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
 
   if (!asinResult.asin) {
     console.log(`  No ASIN found - flagged for manual review`);
-    flagForReview(book, bookSet.files.map((f) => f.path), config);
+    flagForReview(book, filePaths, config);
     return;
   }
 
@@ -130,7 +132,7 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
 
   if (!metadataResult.metadata) {
     console.log(`  Could not resolve metadata - flagged for manual review`);
-    flagForReview(book, bookSet.files.map((f) => f.path), config);
+    flagForReview(book, filePaths, config);
     return;
   }
 
