@@ -9,19 +9,22 @@ import { createOrchestrator } from "./orchestrator.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
-export async function processLibrary(config: Config): Promise<void> {
-  const files = scanForAudioFiles(config.input);
-  let bookSets = groupIntoBooks(files, config.input);
-
-  if (config.include.length > 0) {
-    bookSets = bookSets.filter((set) => {
-      const relPath = path.relative(config.input, set.files[0]?.path || "");
-      const authorSegment = relPath.split(path.sep)[0];
-      return config.include.some((pattern) => {
-        return authorSegment === pattern || authorSegment.includes(pattern);
-      });
-    });
+function scanFilteredFiles(inputDir: string, include: string[]): AudioFile[] {
+  const allFiles: AudioFile[] = [];
+  for (const pattern of include) {
+    const dir = path.join(inputDir, pattern);
+    allFiles.push(...scanForAudioFiles(dir));
   }
+  return allFiles;
+}
+
+export async function processLibrary(config: Config): Promise<void> {
+  const files = config.include.length > 0
+    ? scanFilteredFiles(config.input, config.include)
+    : scanForAudioFiles(config.input);
+  const bookSets = groupIntoBooks(files, config.input);
+
+  printSummary(bookSets);
 
   printSummary(bookSets);
 
