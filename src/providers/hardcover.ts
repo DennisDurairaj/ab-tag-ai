@@ -1,4 +1,5 @@
 import { validateAsin } from "./asin.js";
+import type { BookIdentity } from "../types.js";
 
 const HARDCOVER_API_URL = "https://api.hardcover.app/v1/graphql";
 
@@ -21,13 +22,12 @@ const EDITIONS_QUERY = `
 `;
 
 export async function searchHardcoverAsin(
-  title: string,
-  author: string,
+  identity: BookIdentity,
   apiKey: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<string | null> {
   try {
-    const query = `${title} ${author}`;
+    const query = `${identity.title} ${identity.author}`;
 
     const searchResponse = await fetchFn(HARDCOVER_API_URL, {
       method: "POST",

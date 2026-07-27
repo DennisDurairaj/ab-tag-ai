@@ -28,8 +28,11 @@ export interface ResolvedMetadata {
   durationMinutes?: number;
 }
 
-export interface Book extends ResolvedMetadata {
+export interface Book {
   path: string;
+  title: string;
+  author: string;
+  asin: string;
 }
 
 export interface BookSet {

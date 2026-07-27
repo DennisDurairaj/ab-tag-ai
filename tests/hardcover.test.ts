@@ -47,8 +47,7 @@ describe("searchHardcoverAsin", () => {
     ]);
 
     const result = await searchHardcoverAsin(
-      "The Hobbit",
-      "Tolkien",
+      { title: "The Hobbit", author: "Tolkien" },
       "test-key",
       mockFn,
     );
@@ -92,8 +91,7 @@ describe("searchHardcoverAsin", () => {
     ]);
 
     const result = await searchHardcoverAsin(
-      "The Hobbit",
-      "Tolkien",
+      { title: "The Hobbit", author: "Tolkien" },
       "test-key",
       mockFn,
     );
@@ -109,8 +107,7 @@ describe("searchHardcoverAsin", () => {
     ]);
 
     const result = await searchHardcoverAsin(
-      "Unknown",
-      "Nobody",
+      { title: "Unknown", author: "Nobody" },
       "test-key",
       mockFn,
     );
@@ -138,8 +135,7 @@ describe("searchHardcoverAsin", () => {
     ]);
 
     const result = await searchHardcoverAsin(
-      "Some Book",
-      "Author",
+      { title: "Some Book", author: "Author" },
       "test-key",
       mockFn,
     );
@@ -151,7 +147,7 @@ describe("searchHardcoverAsin", () => {
       { status: 500, body: { error: "Server Error" } },
     ]);
 
-    const result = await searchHardcoverAsin("Any", "Any", "test-key", mockFn);
+    const result = await searchHardcoverAsin({ title: "Any", author: "Any" }, "test-key", mockFn);
     expect(result).toBeNull();
   });
 
@@ -161,7 +157,7 @@ describe("searchHardcoverAsin", () => {
       { status: 500, body: { error: "Server Error" } },
     ]);
 
-    const result = await searchHardcoverAsin("Any", "Any", "test-key", mockFn);
+    const result = await searchHardcoverAsin({ title: "Any", author: "Any" }, "test-key", mockFn);
     expect(result).toBeNull();
   });
 
@@ -169,7 +165,7 @@ describe("searchHardcoverAsin", () => {
     const mockFn = async () => {
       throw new Error("Network failure");
     };
-    const result = await searchHardcoverAsin("Any", "Any", "test-key", mockFn);
+    const result = await searchHardcoverAsin({ title: "Any", author: "Any" }, "test-key", mockFn);
     expect(result).toBeNull();
   });
 
@@ -181,7 +177,7 @@ describe("searchHardcoverAsin", () => {
       },
     ]);
 
-    await searchHardcoverAsin("Any", "Any", "secret-key-123", mockFn);
+    await searchHardcoverAsin({ title: "Any", author: "Any" }, "secret-key-123", mockFn);
     const headers = calls[0].init?.headers as Record<string, string>;
     const authHeader =
       headers["authorization"] || headers["Authorization"];
@@ -197,8 +193,7 @@ describe("searchHardcoverAsin", () => {
     ]);
 
     await searchHardcoverAsin(
-      "The Hobbit",
-      "J.R.R. Tolkien",
+      { title: "The Hobbit", author: "J.R.R. Tolkien" },
       "test-key",
       mockFn,
     );

@@ -50,7 +50,7 @@ export async function resolveMetadata(
     return { metadata, source: "audnexus" };
   }
 
-  const olAsin = await searchOpenLibraryAsin(identity.title, identity.author, fetchFn);
+  const olAsin = await searchOpenLibraryAsin(identity, fetchFn);
   if (olAsin) {
     const olBook = await searchOpenLibraryByIsbn(olAsin, fetchFn);
     const metadata = await enrichWithAudnexus(olAsin, {
@@ -64,7 +64,7 @@ export async function resolveMetadata(
   }
 
   if (hardcoverApiKey) {
-    const hcAsin = await searchHardcoverAsin(identity.title, identity.author, hardcoverApiKey, fetchFn);
+    const hcAsin = await searchHardcoverAsin(identity, hardcoverApiKey, fetchFn);
     if (hcAsin) {
       const metadata = await enrichWithAudnexus(hcAsin, identity, fetchFn);
       return { metadata, source: "hardcover" };

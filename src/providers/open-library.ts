@@ -1,5 +1,6 @@
 import { validateAsin } from "./asin.js";
 import { delay } from "../utils.js";
+import type { BookIdentity } from "../types.js";
 
 const OPEN_LIBRARY_DELAY_MS = 1100;
 
@@ -17,12 +18,11 @@ export interface OpenLibraryBook {
 }
 
 export async function searchOpenLibraryAsin(
-  title: string,
-  author: string,
+  identity: BookIdentity,
   fetchFn: typeof fetch = fetch,
 ): Promise<string | null> {
   try {
-    const query = `${title} ${author}`;
+    const query = `${identity.title} ${identity.author}`;
     const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&fields=key,title,author_name,isbn,cover_i&limit=5`;
 
     const response = await fetchFn(url);

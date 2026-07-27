@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Config } from "./config.js";
 import type { BookSet, AudioFile, Book, BookIdentity } from "./types.js";
 import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
-import { createAsinCache, acquireAsin, verifyAsin } from "./providers/asin.js";
+import { createAsinCache, acquireAsin, verifyAsin, validateAsin } from "./providers/asin.js";
 import { searchOpenLibraryAsin } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { resolveMetadata } from "./providers/metadata-resolver.js";
@@ -40,7 +40,7 @@ function inferBook(files: AudioFile[]): Book {
   const first = files[0];
   const identity = inferBookIdentity(files);
   const meta = first.existingMetadata;
-  const existingAsin = meta.asin && /^[A-Za-z0-9]{10}$/.test(meta.asin) ? meta.asin : "";
+  const existingAsin = meta.asin && validateAsin(meta.asin) ? meta.asin : "";
   return {
     path: first.path,
     title: identity.title,

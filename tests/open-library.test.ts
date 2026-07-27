@@ -107,7 +107,7 @@ describe("searchOpenLibraryAsin", () => {
       },
     });
 
-    const result = await searchOpenLibraryAsin("The Hobbit", "Tolkien", mockFn);
+    const result = await searchOpenLibraryAsin({ title: "The Hobbit", author: "Tolkien" }, mockFn);
     expect(result).toBe("0544003411");
 
     expect(calls[0].url).toContain("/search.json");
@@ -122,7 +122,7 @@ describe("searchOpenLibraryAsin", () => {
       body: { numFound: 0, docs: [] },
     });
 
-    const result = await searchOpenLibraryAsin("Unknown Book", "Nobody", mockFn);
+    const result = await searchOpenLibraryAsin({ title: "Unknown Book", author: "Nobody" }, mockFn);
     expect(result).toBeNull();
   });
 
@@ -141,7 +141,7 @@ describe("searchOpenLibraryAsin", () => {
       },
     });
 
-    const result = await searchOpenLibraryAsin("Some Book", "Author", mockFn);
+    const result = await searchOpenLibraryAsin({ title: "Some Book", author: "Author" }, mockFn);
     expect(result).toBeNull();
   });
 
@@ -161,7 +161,7 @@ describe("searchOpenLibraryAsin", () => {
       },
     });
 
-    const result = await searchOpenLibraryAsin("Some Book", "Author", mockFn);
+    const result = await searchOpenLibraryAsin({ title: "Some Book", author: "Author" }, mockFn);
     expect(result).toBe("0544003411");
   });
 
@@ -171,7 +171,7 @@ describe("searchOpenLibraryAsin", () => {
       body: { error: "Server Error" },
     });
 
-    const result = await searchOpenLibraryAsin("Any", "Any", mockFn);
+    const result = await searchOpenLibraryAsin({ title: "Any", author: "Any" }, mockFn);
     expect(result).toBeNull();
   });
 
@@ -179,7 +179,7 @@ describe("searchOpenLibraryAsin", () => {
     const mockFn = async () => {
       throw new Error("Network failure");
     };
-    const result = await searchOpenLibraryAsin("Any", "Any", mockFn);
+    const result = await searchOpenLibraryAsin({ title: "Any", author: "Any" }, mockFn);
     expect(result).toBeNull();
   });
 
@@ -205,7 +205,7 @@ describe("searchOpenLibraryAsin", () => {
       },
     });
 
-    const result = await searchOpenLibraryAsin("Book", "Author", mockFn);
+    const result = await searchOpenLibraryAsin({ title: "Book", author: "Author" }, mockFn);
     expect(result).toBe("B000002IX7");
   });
 });

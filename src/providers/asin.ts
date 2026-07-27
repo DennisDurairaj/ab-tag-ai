@@ -135,8 +135,8 @@ export interface AcquireAsinOptions {
   cache: AsinCache;
   hardcoverApiKey: string;
   existingAsin?: string;
-  searchOpenLibrary: (title: string, author: string) => Promise<string | null>;
-  searchHardcover: (title: string, author: string, apiKey: string) => Promise<string | null>;
+  searchOpenLibrary: (identity: BookIdentity) => Promise<string | null>;
+  searchHardcover: (identity: BookIdentity, apiKey: string) => Promise<string | null>;
   verifyAsinFn?: (asin: string, identity: BookIdentity) => Promise<boolean>;
 }
 
@@ -163,14 +163,14 @@ export async function acquireAsin(options: AcquireAsinOptions): Promise<AsinResu
     }
   }
 
-  const fromOpenLibrary = await searchOpenLibrary(identity.title, identity.author);
+  const fromOpenLibrary = await searchOpenLibrary(identity);
   if (fromOpenLibrary) {
     return cachedResult(cache, key, fromOpenLibrary, "open-library");
   }
   await delay(1100);
 
   if (hardcoverApiKey) {
-    const fromHardcover = await searchHardcover(identity.title, identity.author, hardcoverApiKey);
+    const fromHardcover = await searchHardcover(identity, hardcoverApiKey);
     if (fromHardcover) {
       return cachedResult(cache, key, fromHardcover, "hardcover");
     }
