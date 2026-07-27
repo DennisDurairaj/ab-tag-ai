@@ -4,7 +4,6 @@ import type { Config } from "./config.js";
 import type { BookSet, AudioFile, Book, BookIdentity } from "./types.js";
 import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
 import { createAsinCache, acquireAsin } from "./providers/asin.js";
-import { searchAudnexusAsin } from "./providers/audnexus.js";
 import { searchOpenLibraryAsin } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 
@@ -100,7 +99,6 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
     filePaths: bookSet.files.map((f) => f.path),
     cache,
     hardcoverApiKey: config.hardcover_api_key,
-    searchAudnexus: searchAudnexusAsin,
     searchOpenLibrary: searchOpenLibraryAsin,
     searchHardcover: searchHardcoverAsin,
   });

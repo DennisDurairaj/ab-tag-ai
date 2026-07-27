@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { BookIdentity } from "../types.js";
+import { delay } from "../utils.js";
 
 const ASIN_REGEX = /^[A-Za-z0-9]{10}$/;
 const ASIN_IN_TEXT = /(?:^|[\s\[\]()_/-])([A-Za-z0-9]{10})(?=$|[\s\[\]()_./-])/g;
@@ -86,19 +87,13 @@ function cachedResult(cache: AsinCache, key: string, asin: string, source: strin
   return { asin, source };
 }
 
-export function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export interface AcquireAsinOptions {
   identity: BookIdentity;
   filePaths: string[];
   cache: AsinCache;
   hardcoverApiKey: string;
-  searchAudnexus: (title: string, author: string) => Promise<string | null>;
   searchOpenLibrary: (title: string, author: string) => Promise<string | null>;
   searchHardcover: (title: string, author: string, apiKey: string) => Promise<string | null>;
-  providerDelay?: number;
 }
 
 export interface AsinResult {
@@ -107,7 +102,7 @@ export interface AsinResult {
 }
 
 export async function acquireAsin(options: AcquireAsinOptions): Promise<AsinResult> {
-  const { identity, filePaths, cache, hardcoverApiKey, searchAudnexus, searchOpenLibrary, searchHardcover, providerDelay = 100 } = options;
+  const { identity, filePaths, cache, hardcoverApiKey, searchOpenLibrary, searchHardcover } = options;
   const key = cacheKey(identity);
 
   const cached = cache.get(key);
@@ -115,24 +110,18 @@ export async function acquireAsin(options: AcquireAsinOptions): Promise<AsinResu
     return { asin: cached, source: "cache" };
   }
 
-  const fromAudnexus = await searchAudnexus(identity.title, identity.author);
-  if (fromAudnexus) {
-    return cachedResult(cache, key, fromAudnexus, "audnexus");
-  }
-  await delay(providerDelay);
-
   const fromOpenLibrary = await searchOpenLibrary(identity.title, identity.author);
   if (fromOpenLibrary) {
     return cachedResult(cache, key, fromOpenLibrary, "open-library");
   }
-  await delay(providerDelay);
+  await delay(1100);
 
   if (hardcoverApiKey) {
     const fromHardcover = await searchHardcover(identity.title, identity.author, hardcoverApiKey);
     if (fromHardcover) {
       return cachedResult(cache, key, fromHardcover, "hardcover");
     }
-    await delay(providerDelay);
+    await delay(1000);
   }
 
   for (const filePath of filePaths) {

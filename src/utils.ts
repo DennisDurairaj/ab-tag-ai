@@ -1,5 +1,9 @@
 import fs from "node:fs";
 
+export function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function slugify(input: string): string {
   return input
     .trim()
