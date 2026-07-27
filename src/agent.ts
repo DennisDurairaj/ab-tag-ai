@@ -9,7 +9,8 @@ import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { fetchNextCandidate } from "./providers/metadata-resolver.js";
 import { inferBook } from "./inference.js";
 import { createLlmVerifier } from "./verifier.js";
-import type { Verifier, VerificationResult } from "./verifier.js";
+import type { Verifier } from "./verifier.js";
+import { verifyWithRetry } from "./verify-loop.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
@@ -105,47 +106,31 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
   book.asin = asinResult.asin;
   console.log(`  ASIN: ${asinResult.asin} (${asinResult.source})`);
 
-  const skipProviders: string[] = [];
-  let lastVerdict: VerificationResult | null = null;
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const candidateResult = await fetchNextCandidate({
+  const result = await verifyWithRetry({
+    identity: { title: book.title, author: book.author },
+    existingMetadata: bookSet.files[0].existingMetadata,
+    fetcher: (skipProviders) => fetchNextCandidate({
       identity: { title: book.title, author: book.author },
       asin: asinResult.asin,
       hardcoverApiKey: config.hardcover_api_key,
       skipProviders,
-    });
+    }),
+    verifier,
+  });
 
-    if (!candidateResult.metadata) break;
-
-    skipProviders.push(candidateResult.source);
-
-    const verdict = await verifier({
-      identity: { title: book.title, author: book.author },
-      existingMetadata: bookSet.files[0].existingMetadata,
-      candidate: candidateResult.metadata,
-    });
-
-    lastVerdict = verdict;
-
-    if (verdict.verdict === "trust") {
-      const metadata = candidateResult.metadata;
-      console.log(`  Verified: ${metadata.title} by ${metadata.author}`);
-      if (metadata.series) {
-        console.log(`  Series: ${metadata.series} (${metadata.seriesPart})`);
-      }
-      console.log(`  Verifier: ${verdict.reason}`);
-      return;
+  if (result.trusted) {
+    const metadata = result.metadata;
+    console.log(`  Verified: ${metadata.title} by ${metadata.author}`);
+    if (metadata.series) {
+      console.log(`  Series: ${metadata.series} (${metadata.seriesPart})`);
     }
-
-    if (verdict.verdict === "flag") break;
-
-    console.log(`  Retry requested (${candidateResult.source}): ${verdict.reason}`);
+    console.log(`  Verifier: ${result.verdict.reason}`);
+    return;
   }
 
-  if (lastVerdict) {
-    console.log(`  Flagged for review: ${lastVerdict.reason}`);
-    flagForReview(book, filePaths, config, lastVerdict.reason);
+  if (result.verdict) {
+    console.log(`  Flagged for review: ${result.verdict.reason}`);
+    flagForReview(book, filePaths, config, result.verdict.reason);
   } else {
     console.log(`  Could not resolve metadata - flagged for manual review`);
     flagForReview(book, filePaths, config, "Metadata could not be resolved from any provider");

@@ -47,3 +47,5 @@ export interface MultiFileSet {
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
+
+export type ProviderName = "audnexus" | "open-library" | "hardcover";

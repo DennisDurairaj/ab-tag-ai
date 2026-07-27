@@ -1,4 +1,4 @@
-import type { BookIdentity, ResolvedMetadata } from "../types.js";
+import type { BookIdentity, ResolvedMetadata, ProviderName } from "../types.js";
 import { lookupAudnexusBook } from "./audnexus.js";
 import { searchOpenLibraryAsin, searchOpenLibraryByIsbn } from "./open-library.js";
 import { searchHardcoverAsin } from "./hardcover.js";
@@ -11,16 +11,15 @@ export interface ResolveMetadataOptions {
   fetchFn?: typeof fetch;
 }
 
-export interface ResolveMetadataResult {
-  metadata: ResolvedMetadata | null;
-  source: string;
-}
+export type ResolveMetadataResult =
+  | { metadata: ResolvedMetadata; source: ProviderName }
+  | { metadata: null; source: "none" };
 
 export interface FetchNextCandidateOptions {
   identity: BookIdentity;
   asin: string | null;
   hardcoverApiKey: string;
-  skipProviders: string[];
+  skipProviders: ProviderName[];
   fetchFn?: typeof fetch;
 }
 
