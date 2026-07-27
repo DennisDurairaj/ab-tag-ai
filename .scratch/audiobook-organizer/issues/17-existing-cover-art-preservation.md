@@ -4,10 +4,10 @@
 
 **Blocked by:** 14 — Copy-then-tag the copy (cover is written to the output dir)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Source directory scanned for `.jpg`/`.png` before any provider cover download
-- [ ] Existing image copied to output as `cover.jpg` (resized to 500×500 via sharp, matching provider covers)
-- [ ] Provider cover download only fires when no local image is found
-- [ ] Cover art resolution happens during discovery, before the LLM verifier (ASIN-independent)
-- [ ] Tests cover: existing cover used, no local cover → provider download, embedded APIC uses the resolved cover
+- [x] Source directory scanned for `.jpg`/`.png` before any provider cover download
+- [x] Existing image copied to output as `cover.jpg` (resized to 500×500 via sharp, matching provider covers)
+- [x] Provider cover download only fires when no local image is found
+- [x] Cover art resolution happens during discovery, before the LLM verifier (ASIN-independent)
+- [x] Tests cover: existing cover used, no local cover → provider download, embedded APIC uses the resolved cover

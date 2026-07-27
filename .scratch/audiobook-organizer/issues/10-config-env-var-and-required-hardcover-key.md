@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `HARDCOVER_API_KEY` env var read in `loadConfig` or `mergeCliOverrides`; override order is config < env < CLI flag
-- [ ] `validateConfig` adds an error when `hardcover_api_key` is empty
-- [ ] CLI flag still overrides env var (verified end-to-end)
-- [ ] Tests cover all three layers and the empty-key rejection
+- [x] `HARDCOVER_API_KEY` env var read in `loadConfig` or `mergeCliOverrides`; override order is config < env < CLI flag
+- [x] `validateConfig` adds an error when `hardcover_api_key` is empty
+- [x] CLI flag still overrides env var (verified end-to-end)
+- [x] Tests cover all three layers and the empty-key rejection

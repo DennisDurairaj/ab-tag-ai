@@ -4,10 +4,10 @@
 
 **Blocked by:** 13 — Sequential candidates + retry (the trust branch is where copy-then-tag fires)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `move_file` copies the audio file to the resolved `Author/[Series/]Book/` output path
-- [ ] Tags are written to the *copy* in the output directory, not the source
-- [ ] Source file's tags are provably unchanged after a run (test asserts this)
-- [ ] `buildBookFolderPath` used for the output path; output dir created with `ensureDir`
-- [ ] Tests cover: standalone book → `Author/Book/`, series book → `Author/Series/Book/`, source unchanged
+- [x] `move_file` copies the audio file to the resolved `Author/[Series/]Book/` output path
+- [x] Tags are written to the *copy* in the output directory, not the source
+- [x] Source file's tags are provably unchanged after a run (test asserts this)
+- [x] `buildBookFolderPath` used for the output path; output dir created with `ensureDir`
+- [x] Tests cover: standalone book → `Author/Book/`, series book → `Author/Series/Book/`, source unchanged

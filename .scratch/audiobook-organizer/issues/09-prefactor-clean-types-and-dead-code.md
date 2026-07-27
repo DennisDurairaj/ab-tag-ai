@@ -4,10 +4,10 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `Book` is its own type (path, title, author, asin) — no longer extends `ResolvedMetadata`
-- [ ] `agent.ts` uses `validateAsin` instead of an inline `/^[A-Za-z0-9]{10}$/` regex
-- [ ] `providers/index.ts` placeholder removed; unused `slugify` and `formatBytes` removed from `utils.ts`
-- [ ] `searchOpenLibraryAsin`, `searchHardcoverAsin`, and related provider signatures take `BookIdentity` instead of two string params
-- [ ] All existing tests still pass; typecheck and lint clean
+- [x] `Book` is its own type (path, title, author, asin) — no longer extends `ResolvedMetadata`
+- [x] `agent.ts` uses `validateAsin` instead of an inline `/^[A-Za-z0-9]{10}$/` regex
+- [x] `providers/index.ts` placeholder removed; unused `slugify` and `formatBytes` removed from `utils.ts`
+- [x] `searchOpenLibraryAsin`, `searchHardcoverAsin`, and related provider signatures take `BookIdentity` instead of two string params
+- [x] All existing tests still pass; typecheck and lint clean

@@ -4,9 +4,9 @@
 
 **Blocked by:** 09 — Prefactor (clean `BookIdentity` usage in provider signatures)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Open Library editions/isbn endpoint queried for ASINs (primary path)
-- [ ] Existing `isbn`-array scan retained as a fallback
-- [ ] ASINs validated as 10-char alphanumeric before use (existing `validateAsin`)
-- [ ] Tests cover editions-endpoint hit, editions-endpoint miss → isbn-array fallback, validation
+- [x] Open Library editions/isbn endpoint queried for ASINs (primary path)
+- [x] Existing `isbn`-array scan retained as a fallback
+- [x] ASINs validated as 10-char alphanumeric before use (existing `validateAsin`)
+- [x] Tests cover editions-endpoint hit, editions-endpoint miss → isbn-array fallback, validation

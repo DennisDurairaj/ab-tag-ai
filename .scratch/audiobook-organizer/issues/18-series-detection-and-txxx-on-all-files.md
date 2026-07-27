@@ -4,10 +4,10 @@
 
 **Blocked by:** 14 — Copy-then-tag the copy (TXXX written to the copies)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Hardcover GraphQL query fetches series + series-part for matched books
-- [ ] `resolveMetadata` populates `series` and `seriesPart` on the returned metadata
-- [ ] TXXX `series` and `series-part` frames written on all files in a multi-file set
-- [ ] `Author/Series/Book/` output path used when series is present (already supported by `buildBookFolderPath`)
-- [ ] Tests cover a series book: tags read back show TXXX series + series-part on every file in the set
+- [x] Hardcover GraphQL query fetches series + series-part for matched books
+- [x] `resolveMetadata` populates `series` and `seriesPart` on the returned metadata
+- [x] TXXX `series` and `series-part` frames written on all files in a multi-file set
+- [x] `Author/Series/Book/` output path used when series is present (already supported by `buildBookFolderPath`)
+- [x] Tests cover a series book: tags read back show TXXX series + series-part on every file in the set

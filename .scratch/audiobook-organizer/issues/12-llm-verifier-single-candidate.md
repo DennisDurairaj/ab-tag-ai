@@ -4,11 +4,11 @@
 
 **Blocked by:** 09 — Prefactor (clean types and `BookIdentity`)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] LLM client added; `llm_model` config key read and used to select the model
-- [ ] Verifier interface returns `{ verdict, reason, retryHint? }` per the amended ticket 005
-- [ ] `agent.ts` single-candidate flow: fetch → LLM verdict → (trust: log | flag: review/ with LLM reason)
-- [ ] `flagForReview` writes the LLM's `reason` into `review/<safe-name>.json` instead of a hardcoded string
-- [ ] 0.7 word-overlap heuristic removed from `asin.ts`; `verifyAsin` simplified
-- [ ] Tests mock the LLM client and cover trust, flag, and retry verdicts
+- [x] LLM client added; `llm_model` config key read and used to select the model
+- [x] Verifier interface returns `{ verdict, reason, retryHint? }` per the amended ticket 005
+- [x] `agent.ts` single-candidate flow: fetch → LLM verdict → (trust: log | flag: review/ with LLM reason)
+- [x] `flagForReview` writes the LLM's `reason` into `review/<safe-name>.json` instead of a hardcoded string
+- [x] 0.7 word-overlap heuristic removed from `asin.ts`; `verifyAsin` simplified
+- [x] Tests mock the LLM client and cover trust, flag, and retry verdicts

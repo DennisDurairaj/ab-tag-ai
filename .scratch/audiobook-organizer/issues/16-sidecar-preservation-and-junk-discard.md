@@ -4,9 +4,9 @@
 
 **Blocked by:** 14 — Copy-then-tag the copy (sidecars travel with the audio copy)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Useful sidecars (`.nfo`, `.cue`, `.json`, files matching a synopsis pattern) copied to output
-- [ ] Junk files (`.txt` support messages, `desktop.ini`, `Icon.ico`) discarded
-- [ ] Classification is a single explicit rule, easy to extend
-- [ ] Tests cover a book dir with mixed sidecars: useful ones copied, junk dropped, audio still copied
+- [x] Useful sidecars (`.nfo`, `.cue`, `.json`, files matching a synopsis pattern) copied to output
+- [x] Junk files (`.txt` support messages, `desktop.ini`, `Icon.ico`) discarded
+- [x] Classification is a single explicit rule, easy to extend
+- [x] Tests cover a book dir with mixed sidecars: useful ones copied, junk dropped, audio still copied

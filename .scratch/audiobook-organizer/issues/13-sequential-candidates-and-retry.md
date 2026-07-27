@@ -4,10 +4,10 @@
 
 **Blocked by:** 12 — LLM verifier + single-candidate verification path
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Fallback chain feeds candidates to the LLM one at a time: Audnexus → Open Library → Hardcover
-- [ ] `retry` verdict advances to the next provider; max 1 retry, then auto-flag
-- [ ] Known-ASIN + Audnexus-null now falls through to Open Library/Hardcover instead of returning a stub
-- [ ] `flag` on second miss writes review JSON with the LLM's reason from the last candidate
-- [ ] Tests cover: trust on first candidate, retry-then-trust, retry-then-flag, all-providers-fail
+- [x] Fallback chain feeds candidates to the LLM one at a time: Audnexus → Open Library → Hardcover
+- [x] `retry` verdict advances to the next provider; max 1 retry, then auto-flag
+- [x] Known-ASIN + Audnexus-null now falls through to Open Library/Hardcover instead of returning a stub
+- [x] `flag` on second miss writes review JSON with the LLM's reason from the last candidate
+- [x] Tests cover: trust on first candidate, retry-then-trust, retry-then-flag, all-providers-fail

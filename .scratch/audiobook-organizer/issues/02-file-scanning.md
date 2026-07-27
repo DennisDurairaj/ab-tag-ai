@@ -4,10 +4,19 @@
 
 **Blocked by:** 01 — Project Scaffolding & Config
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Recursive directory walk to find .mp3 and .m4b files
-- [ ] Read existing ID3 tags (node-id3) for MP3 files
-- [ ] Read existing metadata (ffprobe) for M4B files
-- [ ] Detect multi-file sets via directory + filename prefix matching
-- [ ] Print summary: books found, files per book, any files missing metadata
+- [x] Recursive directory walk to find .mp3 and .m4b files
+- [x] Read existing ID3 tags (node-id3) for MP3 files
+- [x] Read existing metadata (ffprobe) for M4B files
+- [x] Detect multi-file sets via directory + filename prefix matching
+- [x] Print summary: books found, files per book, any files missing metadata
+
+## Known limitation
+
+`extractCommonStem` regex patterns (`src/scanner.ts:128-132`) only match stems ending with digit suffixes:
+- `/(.*?)[_\-\s]?\d+$/`
+- `/(.*?)[_\-\s]?Part\d+$/i`
+- `/(.*?)[_\-\s]?Chapter\s*\d+$/i`
+
+Files named like `57300_001_IN.mp3`, `57300_002_C001.mp3`, `57300_PRE.mp3` (common in LibriVox-style rips) don't share a common stem — the `_IN` and `_PRE` suffixes prevent grouping. Discovered while testing Elizabeth Peters' Vicky Bliss series.

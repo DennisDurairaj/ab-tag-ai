@@ -4,9 +4,9 @@
 
 **Blocked by:** 14 — Copy-then-tag the copy, 15 — M4B tag writer, 16 — Sidecar preservation (dry-run must gate every write site that now exists)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `config.dry_run` checked at every write site: copy, ID3 write, M4B write, sidecar copy, cover write, review-dir creation
-- [ ] Dry-run logs the planned output path, planned tags, and cover source per book instead of writing
-- [ ] `--dry-run` CLI flag and `dry_run` config key both honored (already wired in `index.ts`)
-- [ ] Tests run the full pipeline in dry-run against a fixture and assert nothing is written to disk
+- [x] `config.dry_run` checked at every write site: copy, ID3 write, M4B write, sidecar copy, cover write, review-dir creation
+- [x] Dry-run logs the planned output path, planned tags, and cover source per book instead of writing
+- [x] `--dry-run` CLI flag and `dry_run` config key both honored (already wired in `index.ts`)
+- [x] Tests run the full pipeline in dry-run against a fixture and assert nothing is written to disk
