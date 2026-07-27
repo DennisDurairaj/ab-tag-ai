@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -10,8 +10,11 @@ import {
 } from "../src/taggers/index.js";
 import type { AudioFile, ResolvedMetadata } from "../src/types.js";
 
-function makeTmpDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "audiobook-tagger-test-"));
+let tmpDir: string;
+
+function setupTmpDir(): string {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "audiobook-tagger-test-"));
+  return tmpDir;
 }
 
 function createDummyMp3(filePath: string): void {
@@ -40,9 +43,32 @@ function makeResolvedMetadata(overrides: Partial<ResolvedMetadata> = {}): Resolv
   };
 }
 
+function expectSeriesTags(tags: Record<string, unknown>, series: string, seriesPart: string): void {
+  const txxx = (tags.raw as Record<string, unknown>)?.TXXX as Array<{ description: string; value: string }>;
+  expect(Array.isArray(txxx)).toBe(true);
+  const seriesFrame = txxx.find((f) => f.description === "series");
+  const seriesPartFrame = txxx.find((f) => f.description === "series-part");
+  expect(seriesFrame?.value).toBe(series);
+  expect(seriesPartFrame?.value).toBe(seriesPart);
+}
+
+function createTestMp3Files(dir: string, names: string[]): AudioFile[] {
+  return names.map((name) => {
+    const filePath = path.join(dir, name);
+    createDummyMp3(filePath);
+    return makeAudioFile(filePath);
+  });
+}
+
+afterEach(() => {
+  if (tmpDir) {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 describe("assignTrackNumbers", () => {
   it("assigns sequential track numbers alphabetically by filename", () => {
-    const tmpDir = makeTmpDir();
+    setupTmpDir();
     const files = [
       makeAudioFile(path.join(tmpDir, "chapter03.mp3")),
       makeAudioFile(path.join(tmpDir, "chapter01.mp3")),
@@ -54,8 +80,6 @@ describe("assignTrackNumbers", () => {
     expect(result[0].trackNumber).toBe(1);
     expect(result[1].trackNumber).toBe(2);
     expect(result[2].trackNumber).toBe(3);
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("returns empty array for empty input", () => {
@@ -63,21 +87,19 @@ describe("assignTrackNumbers", () => {
   });
 
   it("handles single file", () => {
-    const tmpDir = makeTmpDir();
+    setupTmpDir();
     const files = [makeAudioFile(path.join(tmpDir, "single.mp3"))];
 
     const result = assignTrackNumbers(files);
 
     expect(result).toHaveLength(1);
     expect(result[0].trackNumber).toBe(1);
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });
 
 describe("writeId3Tags", () => {
   it("writes basic tags to an MP3 file", () => {
-    const tmpDir = makeTmpDir();
+    setupTmpDir();
     const filePath = path.join(tmpDir, "test.mp3");
     createDummyMp3(filePath);
 
@@ -95,12 +117,10 @@ describe("writeId3Tags", () => {
     expect(tags.album).toBe("Test Book");
     expect(tags.artist).toBe("Test Author");
     expect(tags.trackNumber).toBe("1");
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("writes TXXX custom frames for series", () => {
-    const tmpDir = makeTmpDir();
+    setupTmpDir();
     const filePath = path.join(tmpDir, "test.mp3");
     createDummyMp3(filePath);
 
@@ -117,19 +137,11 @@ describe("writeId3Tags", () => {
 
     const tags = id3.read(filePath);
     expect(tags.title).toBe("Chapter One");
-    expect(tags.raw?.TXXX).toBeDefined();
-    const txxx = tags.raw?.TXXX as Array<{ description: string; value: string }>;
-    expect(Array.isArray(txxx)).toBe(true);
-    const seriesFrame = txxx.find((f) => f.description === "series");
-    const seriesPartFrame = txxx.find((f) => f.description === "series-part");
-    expect(seriesFrame?.value).toBe("Test Series");
-    expect(seriesPartFrame?.value).toBe("2");
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    expectSeriesTags(tags, "Test Series", "2");
   });
 
   it("writes APIC cover art when provided", () => {
-    const tmpDir = makeTmpDir();
+    setupTmpDir();
     const filePath = path.join(tmpDir, "test.mp3");
     createDummyMp3(filePath);
 
@@ -148,8 +160,6 @@ describe("writeId3Tags", () => {
     const tags = id3.read(filePath);
     expect(tags.image).toBeDefined();
     expect(tags.image?.imageBuffer).toBeDefined();
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("returns false for non-existent file", () => {
@@ -166,16 +176,8 @@ describe("writeId3Tags", () => {
 
 describe("tagMultiFileSet", () => {
   it("tags all files with shared album and individual titles", () => {
-    const tmpDir = makeTmpDir();
-    const files = [
-      makeAudioFile(path.join(tmpDir, "Book - 01.mp3")),
-      makeAudioFile(path.join(tmpDir, "Book - 02.mp3")),
-      makeAudioFile(path.join(tmpDir, "Book - 03.mp3")),
-    ];
-
-    for (const file of files) {
-      createDummyMp3(file.path);
-    }
+    setupTmpDir();
+    const files = createTestMp3Files(tmpDir, ["Book - 01.mp3", "Book - 02.mp3", "Book - 03.mp3"]);
 
     const metadata = makeResolvedMetadata({
       title: "The Great Book",
@@ -199,20 +201,11 @@ describe("tagMultiFileSet", () => {
     expect(tags1.trackNumber).toBe("1");
     expect(tags2.trackNumber).toBe("2");
     expect(tags3.trackNumber).toBe("3");
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("writes series TXXX frames to all files", () => {
-    const tmpDir = makeTmpDir();
-    const files = [
-      makeAudioFile(path.join(tmpDir, "Book - 01.mp3")),
-      makeAudioFile(path.join(tmpDir, "Book - 02.mp3")),
-    ];
-
-    for (const file of files) {
-      createDummyMp3(file.path);
-    }
+    setupTmpDir();
+    const files = createTestMp3Files(tmpDir, ["Book - 01.mp3", "Book - 02.mp3"]);
 
     const metadata = makeResolvedMetadata({
       series: "My Series",
@@ -223,27 +216,13 @@ describe("tagMultiFileSet", () => {
 
     for (const file of files) {
       const tags = id3.read(file.path);
-      const txxx = tags.raw?.TXXX as Array<{ description: string; value: string }>;
-      expect(Array.isArray(txxx)).toBe(true);
-      const seriesFrame = txxx.find((f) => f.description === "series");
-      const seriesPartFrame = txxx.find((f) => f.description === "series-part");
-      expect(seriesFrame?.value).toBe("My Series");
-      expect(seriesPartFrame?.value).toBe("3");
+      expectSeriesTags(tags, "My Series", "3");
     }
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("embeds cover art in all files when provided", () => {
-    const tmpDir = makeTmpDir();
-    const files = [
-      makeAudioFile(path.join(tmpDir, "Book - 01.mp3")),
-      makeAudioFile(path.join(tmpDir, "Book - 02.mp3")),
-    ];
-
-    for (const file of files) {
-      createDummyMp3(file.path);
-    }
+    setupTmpDir();
+    const files = createTestMp3Files(tmpDir, ["Book - 01.mp3", "Book - 02.mp3"]);
 
     const coverBuffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
     const metadata = makeResolvedMetadata();
@@ -255,19 +234,11 @@ describe("tagMultiFileSet", () => {
       expect(tags.image).toBeDefined();
       expect(tags.image?.imageBuffer).toBeDefined();
     }
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("handles files without series metadata", () => {
-    const tmpDir = makeTmpDir();
-    const files = [
-      makeAudioFile(path.join(tmpDir, "Book - 01.mp3")),
-    ];
-
-    for (const file of files) {
-      createDummyMp3(file.path);
-    }
+    setupTmpDir();
+    const files = createTestMp3Files(tmpDir, ["Book - 01.mp3"]);
 
     const metadata = makeResolvedMetadata();
 
@@ -276,12 +247,10 @@ describe("tagMultiFileSet", () => {
     const tags = id3.read(files[0].path);
     expect(tags.album).toBe(metadata.title);
     expect(tags.artist).toBe(metadata.author);
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("uses per-file titles from existing metadata when available", () => {
-    const tmpDir = makeTmpDir();
+    setupTmpDir();
     const files: AudioFile[] = [
       {
         path: path.join(tmpDir, "Book - 01.mp3"),
@@ -310,12 +279,10 @@ describe("tagMultiFileSet", () => {
     expect(tags2.album).toBe("The Complete Book");
     expect(tags1.title).toBe("Chapter One: The Beginning");
     expect(tags2.title).toBe("Chapter Two: The Middle");
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("falls back to filename-based title when no existing title", () => {
-    const tmpDir = makeTmpDir();
+    setupTmpDir();
     const files: AudioFile[] = [
       {
         path: path.join(tmpDir, "Book - 01.mp3"),
@@ -324,9 +291,7 @@ describe("tagMultiFileSet", () => {
       },
     ];
 
-    for (const file of files) {
-      createDummyMp3(file.path);
-    }
+    createDummyMp3(files[0].path);
 
     const metadata = makeResolvedMetadata({ title: "The Complete Book" });
 
@@ -335,7 +300,5 @@ describe("tagMultiFileSet", () => {
     const tags = id3.read(files[0].path);
     expect(tags.album).toBe("The Complete Book");
     expect(tags.title).toBe("Book - 01");
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });
