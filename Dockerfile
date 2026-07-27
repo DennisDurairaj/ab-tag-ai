@@ -18,4 +18,4 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
 
 ENTRYPOINT ["node", "dist/index.js"]
-CMD ["--help"]
+CMD ["--config", "config.yaml"]
