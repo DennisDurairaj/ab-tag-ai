@@ -94,21 +94,21 @@ describe("validateConfig", () => {
 });
 
 describe("loadConfig — env var override", () => {
-  const originalEnv = process.env.HARDACOVER_API_KEY;
+  const originalEnv = process.env.HARDCOVER_API_KEY;
 
   afterEach(() => {
     if (originalEnv === undefined) {
-      delete process.env.HARDACOVER_API_KEY;
+      delete process.env.HARDCOVER_API_KEY;
     } else {
-      process.env.HARDACOVER_API_KEY = originalEnv;
+      process.env.HARDCOVER_API_KEY = originalEnv;
     }
   });
 
-  it("reads HARDACOVER_API_KEY env var when config file has no key", () => {
+  it("reads HARDCOVER_API_KEY env var when config file has no key", () => {
     const tmpDir = makeTmpDir();
     const configPath = path.join(tmpDir, "config.yaml");
     fs.writeFileSync(configPath, "input: /in\noutput: /out\n");
-    process.env.HARDACOVER_API_KEY = "env-key";
+    process.env.HARDCOVER_API_KEY = "env-key";
     const config = loadConfig(configPath);
     expect(config.hardcover_api_key).toBe("env-key");
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -118,7 +118,7 @@ describe("loadConfig — env var override", () => {
     const tmpDir = makeTmpDir();
     const configPath = path.join(tmpDir, "config.yaml");
     fs.writeFileSync(configPath, "input: /in\noutput: /out\nhardcover_api_key: file-key\n");
-    process.env.HARDACOVER_API_KEY = "env-key";
+    process.env.HARDCOVER_API_KEY = "env-key";
     const config = loadConfig(configPath);
     expect(config.hardcover_api_key).toBe("env-key");
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -128,9 +128,21 @@ describe("loadConfig — env var override", () => {
     const tmpDir = makeTmpDir();
     const configPath = path.join(tmpDir, "config.yaml");
     fs.writeFileSync(configPath, "input: /in\noutput: /out\nhardcover_api_key: file-key\n");
-    delete process.env.HARDACOVER_API_KEY;
+    delete process.env.HARDCOVER_API_KEY;
     const config = loadConfig(configPath);
     expect(config.hardcover_api_key).toBe("file-key");
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("CLI flag overrides env var end-to-end", () => {
+    const tmpDir = makeTmpDir();
+    const configPath = path.join(tmpDir, "config.yaml");
+    fs.writeFileSync(configPath, "input: /in\noutput: /out\n");
+    process.env.HARDCOVER_API_KEY = "env-key";
+    const loaded = loadConfig(configPath);
+    expect(loaded.hardcover_api_key).toBe("env-key");
+    const merged = mergeCliOverrides(loaded, { hardcover_api_key: "cli-key" });
+    expect(merged.hardcover_api_key).toBe("cli-key");
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

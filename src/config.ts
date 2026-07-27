@@ -31,8 +31,8 @@ export function loadConfig(configPath: string): Config {
 
 function envOverrides(): Partial<Config> {
   const overrides: Partial<Config> = {};
-  if (process.env.HARDACOVER_API_KEY) {
-    overrides.hardcover_api_key = process.env.HARDACOVER_API_KEY;
+  if (process.env.HARDCOVER_API_KEY) {
+    overrides.hardcover_api_key = process.env.HARDCOVER_API_KEY;
   }
   return overrides;
 }

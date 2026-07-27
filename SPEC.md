@@ -42,7 +42,7 @@ A Node.js/TypeScript CLI tool that scans an input directory, resolves metadata f
 - **Multi-file MP3 handling**: directory-based set detection (primary), filename prefix matching (secondary); shared album, per-file titles, alphabetical track numbering; all files get full tag set including series TXXX fields
 - **Cover art**: download during metadata discovery (ASIN-independent); resize to 500×500 via `sharp`; file named `cover.jpg`; skip silently if no cover art is available from providers
 - **Error handling**: provider fallback chain (Audnexus → Open Library → Hardcover); if all providers fail, flag the book for manual review in a `review/` directory
-- **API key management**: layered approach — config file default, `HARDACOVER_API_KEY` env var override, `--hardcover-key` CLI flag for one-off overrides
+- **API key management**: layered approach — config file default, `HARDCOVER_API_KEY` env var override, `--hardcover-key` CLI flag for one-off overrides
 - **Non-ASCII handling**: preserve filenames as-is (UTF-8 native on modern Linux); pass Unicode titles/author names verbatim to providers
 - **Rate limiting**: auto-respect provider limits with inter-call delays (1.1s for Open Library, ~1s for Hardcover, ~0.6s for Audnexus)
 - **Audio formats**: node-id3 for MP3 (ID3v2 with TXXX custom frames for series/series-part + APIC cover art); ffmpeg for M4B (ffprobe read, `-metadata` write)
