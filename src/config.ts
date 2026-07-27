@@ -8,6 +8,8 @@ export interface Config {
   hardcover_api_key: string;
   dry_run: boolean;
   llm_model: string;
+  llm_api_key: string;
+  llm_api_base_url: string;
   log_level: LogLevel;
 }
 
@@ -17,6 +19,8 @@ const DEFAULT_CONFIG: Config = {
   hardcover_api_key: "",
   dry_run: false,
   llm_model: "",
+  llm_api_key: "",
+  llm_api_base_url: "",
   log_level: "info",
 };
 
@@ -33,6 +37,12 @@ function envOverrides(): Partial<Config> {
   const overrides: Partial<Config> = {};
   if (process.env.HARDCOVER_API_KEY) {
     overrides.hardcover_api_key = process.env.HARDCOVER_API_KEY;
+  }
+  if (process.env.LLM_API_KEY) {
+    overrides.llm_api_key = process.env.LLM_API_KEY;
+  }
+  if (process.env.LLM_API_BASE_URL) {
+    overrides.llm_api_base_url = process.env.LLM_API_BASE_URL;
   }
   return overrides;
 }

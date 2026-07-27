@@ -3,17 +3,9 @@ import path from "node:path";
 import type { Config } from "./config.js";
 import type { BookSet, AudioFile, Book } from "./types.js";
 import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
-import { createAsinCache, acquireAsin, verifyAsin } from "./providers/asin.js";
-import { searchOpenLibraryAsin } from "./providers/open-library.js";
-import { searchHardcoverAsin } from "./providers/hardcover.js";
-import { fetchNextCandidate } from "./providers/metadata-resolver.js";
-import { downloadAndResizeCover, findLocalCoverArt } from "./providers/cover-art.js";
-import { tagMultiFileSet } from "./taggers/index.js";
-import { buildBookFolderPath, writeCoverArt, copyFilesToOutput } from "./utils.js";
+import { createAsinCache } from "./providers/asin.js";
 import { inferBook } from "./inference.js";
-import { createLlmVerifier } from "./verifier.js";
-import type { Verifier } from "./verifier.js";
-import { verifyWithRetry } from "./verify-loop.js";
+import { createOrchestrator } from "./orchestrator.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
@@ -24,10 +16,18 @@ export async function processLibrary(config: Config): Promise<void> {
   printSummary(bookSets);
 
   const asinCache = createAsinCache(CACHE_DIR);
-  const verifier = createLlmVerifier({ model: config.llm_model });
+  const orchestrateBook = createOrchestrator({
+    model: config.llm_model,
+    apiKey: config.llm_api_key || undefined,
+    apiBaseUrl: config.llm_api_base_url || undefined,
+    hardcoverApiKey: config.hardcover_api_key,
+    outputDir: config.output,
+    dryRun: config.dry_run,
+    cache: asinCache,
+  });
 
   for (const bookSet of bookSets) {
-    await processBook(bookSet, config, asinCache, verifier);
+    await processBook(bookSet, config, orchestrateBook);
   }
 
   asinCache.save();
@@ -81,101 +81,18 @@ function printSummary(bookSets: BookSet[]): void {
   }
 }
 
-async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<typeof createAsinCache>, verifier: Verifier): Promise<void> {
+async function processBook(bookSet: BookSet, _config: Config, orchestrateBook: ReturnType<typeof createOrchestrator>): Promise<void> {
   const book = bookSet.books[0];
   if (!book) return;
 
   console.log(`Processing: ${book.title || "Unknown"}`);
 
-  const filePaths = bookSet.files.map((f) => f.path);
+  const result = await orchestrateBook(bookSet);
 
-  const asinResult = await acquireAsin({
-    identity: { title: book.title, author: book.author },
-    filePaths,
-    cache,
-    hardcoverApiKey: config.hardcover_api_key,
-    existingAsin: book.asin || undefined,
-    searchOpenLibrary: searchOpenLibraryAsin,
-    searchHardcover: async (identity, apiKey) => {
-      const result = await searchHardcoverAsin(identity, apiKey);
-      return result.asin;
-    },
-    verifyAsinFn: (asin) => verifyAsin({ asin }),
-  });
-
-  if (!asinResult.asin) {
-    console.log(`  No ASIN found - flagged for manual review`);
-    flagForReview(book, filePaths, config, "No ASIN could be acquired from any source");
-    return;
-  }
-
-  book.asin = asinResult.asin;
-  console.log(`  ASIN: ${asinResult.asin} (${asinResult.source})`);
-
-  const sourceDir = bookSet.files.length > 0 ? path.dirname(bookSet.files[0].path) : null;
-  const localCover = sourceDir ? await findLocalCoverArt(sourceDir) : null;
-
-  const result = await verifyWithRetry({
-    identity: { title: book.title, author: book.author },
-    existingMetadata: bookSet.files[0].existingMetadata,
-    fetcher: (skipProviders) => fetchNextCandidate({
-      identity: { title: book.title, author: book.author },
-      asin: asinResult.asin,
-      hardcoverApiKey: config.hardcover_api_key,
-      skipProviders,
-    }),
-    verifier,
-  });
-
-  if (result.trusted) {
-    const metadata = result.metadata;
-    console.log(`  Verified: ${metadata.title} by ${metadata.author}`);
-    if (metadata.series) {
-      console.log(`  Series: ${metadata.series} (${metadata.seriesPart})`);
-    }
-    console.log(`  Verifier: ${result.verdict.reason}`);
-
-    const bookDir = buildBookFolderPath(config.output, metadata.author, metadata.title, metadata.series);
-
-    if (config.dry_run) {
-      console.log(`  [DRY-RUN] Would write cover art to ${bookDir}`);
-      if (localCover) {
-        console.log(`  [DRY-RUN] Would copy cover from source directory`);
-      } else if (metadata.coverUrl || (metadata.coverId && metadata.coverId > 0)) {
-        console.log(`  [DRY-RUN] Would download cover from provider`);
-      }
-      console.log(`  [DRY-RUN] Would copy ${bookSet.files.length} file(s) to ${bookDir}`);
-      const tagSummary = `album="${metadata.title}", artist="${metadata.author}"` +
-        (metadata.series ? `, series="${metadata.series}"` : "");
-      console.log(`  [DRY-RUN] Would tag with ${tagSummary}`);
-      return;
-    }
-
-    const coverArt = localCover ?? await downloadAndResizeCover({
-      coverUrl: metadata.coverUrl,
-      coverId: metadata.coverId,
-    });
-    const coverPath = writeCoverArt(coverArt, bookDir);
-    if (coverPath) {
-      if (localCover) {
-        console.log(`  Cover art copied from source directory`);
-      } else {
-        console.log(`  Cover art downloaded from provider`);
-      }
-    }
-
-    const copiedFiles = copyFilesToOutput(bookSet.files, bookDir);
-    tagMultiFileSet(copiedFiles, metadata, coverArt ?? undefined);
-    console.log(`  Copied and tagged ${copiedFiles.length} file(s) to ${bookDir}`);
-    return;
-  }
-
-  if (result.verdict) {
-    console.log(`  Flagged for review: ${result.verdict.reason}`);
-    flagForReview(book, filePaths, config, result.verdict.reason);
+  if (result.status === "written") {
+    console.log(`  Written: ${result.outputDir} (${result.filesWritten} files)`);
   } else {
-    console.log(`  Could not resolve metadata - flagged for manual review`);
-    flagForReview(book, filePaths, config, "Metadata could not be resolved from any provider");
+    console.log(`  Flagged: ${result.reason}`);
   }
 }
 

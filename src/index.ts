@@ -14,6 +14,8 @@ async function main(): Promise<void> {
     .option("-i, --input <path>", "Input directory containing audiobook files")
     .option("-o, --output <path>", "Output directory for organized audiobooks")
     .option("--hardcover-key <key>", "Hardcover API key")
+    .option("--llm-key <key>", "LLM API key")
+    .option("--llm-base-url <url>", "LLM API base URL")
     .option("--dry-run", "Preview changes without writing to disk", false)
     .option("--log-level <level>", "Logging level (debug, info, warn, error)", "info")
     .parse(process.argv);
@@ -29,6 +31,8 @@ async function main(): Promise<void> {
   if (options.hardcoverKey) cliOverrides.hardcover_api_key = options.hardcoverKey;
   if (options.dryRun !== undefined) cliOverrides.dry_run = options.dryRun;
   if (options.logLevel) cliOverrides.log_level = options.logLevel;
+  if (options.llmKey) cliOverrides.llm_api_key = options.llmKey;
+  if (options.llmBaseUrl) cliOverrides.llm_api_base_url = options.llmBaseUrl;
 
   config = mergeCliOverrides(config, cliOverrides as Partial<typeof config>);
 

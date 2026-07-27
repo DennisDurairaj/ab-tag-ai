@@ -2,12 +2,6 @@ import path from "node:path";
 import type { AudioFile, Book, BookIdentity } from "./types.js";
 import { validateAsin } from "./providers/asin.js";
 
-function authorFromPath(inputDir: string, filePath: string): string {
-  const relative = path.relative(inputDir, filePath);
-  const parts = relative.split(path.sep);
-  return parts.length > 1 ? parts[0] : "";
-}
-
 export function inferBookIdentity(files: AudioFile[], inputDir: string): BookIdentity {
   const first = files[0];
   const meta = first.existingMetadata;
@@ -21,7 +15,7 @@ export function inferBookIdentity(files: AudioFile[], inputDir: string): BookIde
   const tagArtist = (meta.artist || "").trim();
   const useDirName = isBookDir || files.length > 1;
   const title = (useDirName ? dirName : null) || tagAlbum || tagTitle || filenameStem;
-  const author = authorFromPath(inputDir, first.path) || tagArtist || "";
+  const author = tagArtist || "";
 
   return { title, author };
 }

@@ -31,22 +31,22 @@ describe("inferBookIdentity", () => {
     expect(identity.title).toBe("Some Book");
   });
 
-  it("prefers folder-path author over tag artist (narrator in tag)", () => {
+  it("uses tag artist when present (authorFromPath removed — LLM handles path-based author)", () => {
     const files = [mkFile("/input/Author/Book/file.mp3", { artist: "Narrator Name" })];
     const identity = inferBookIdentity(files, "/input");
-    expect(identity.author).toBe("Author");
+    expect(identity.author).toBe("Narrator Name");
   });
 
-  it("derives author from folder path when no tag artist", () => {
+  it("returns empty author when no tag artist (LLM handles path-based author)", () => {
     const files = [mkFile("/input/Riordan, Rick/The Lightning Thief/ch01.mp3")];
     const identity = inferBookIdentity(files, "/input");
-    expect(identity.author).toBe("Riordan, Rick");
+    expect(identity.author).toBe("");
   });
 
-  it("derives author from top-level folder in Author/Series/Book structure", () => {
+  it("returns empty author in Author/Series/Book structure (LLM handles path-based author)", () => {
     const files = [mkFile("/input/Riordan, Rick/The Trials of Apollo/Book 1/ch01.mp3")];
     const identity = inferBookIdentity(files, "/input");
-    expect(identity.author).toBe("Riordan, Rick");
+    expect(identity.author).toBe("");
     expect(identity.title).toBe("Book 1");
   });
 
