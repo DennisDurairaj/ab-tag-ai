@@ -137,5 +137,141 @@ describe("acquireAsin", () => {
     expect(hardcoverCalled).toBe(false);
     expect(result).toEqual({ asin: null, source: "none" });
   });
+
+  it("returns existing ASIN when verification succeeds", async () => {
+    const cache = createMockCache();
+    const result = await acquireAsin({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      filePaths: [],
+      cache,
+      hardcoverApiKey: "",
+      existingAsin: "B000002IX7",
+      searchOpenLibrary: async () => "B00B8LXTKW",
+      searchHardcover: async () => null,
+      verifyAsinFn: async () => true,
+    });
+    expect(result).toEqual({ asin: "B000002IX7", source: "existing-verified" });
+  });
+
+  it("skips to Open Library when existing ASIN verification fails", async () => {
+    const cache = createMockCache();
+    const result = await acquireAsin({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      filePaths: [],
+      cache,
+      hardcoverApiKey: "",
+      existingAsin: "B000002IX7",
+      searchOpenLibrary: async () => "B00B8LXTKW",
+      searchHardcover: async () => null,
+      verifyAsinFn: async () => false,
+    });
+    expect(result).toEqual({ asin: "B00B8LXTKW", source: "open-library" });
+  });
+
+  it("skips verification when existing ASIN is invalid format", async () => {
+    let verifyCalled = false;
+    const cache = createMockCache();
+    const result = await acquireAsin({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      filePaths: [],
+      cache,
+      hardcoverApiKey: "",
+      existingAsin: "INVALID",
+      searchOpenLibrary: async () => "B00B8LXTKW",
+      searchHardcover: async () => null,
+      verifyAsinFn: async () => { verifyCalled = true; return false; },
+    });
+    expect(verifyCalled).toBe(false);
+    expect(result).toEqual({ asin: "B00B8LXTKW", source: "open-library" });
+  });
+
+  it("skips verification when existing ASIN is empty", async () => {
+    let verifyCalled = false;
+    const cache = createMockCache();
+    const result = await acquireAsin({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      filePaths: [],
+      cache,
+      hardcoverApiKey: "",
+      existingAsin: "",
+      searchOpenLibrary: async () => "B00B8LXTKW",
+      searchHardcover: async () => null,
+      verifyAsinFn: async () => { verifyCalled = true; return false; },
+    });
+    expect(verifyCalled).toBe(false);
+    expect(result).toEqual({ asin: "B00B8LXTKW", source: "open-library" });
+  });
+
+  it("skips verification when verifyAsinFn is not provided", async () => {
+    const cache = createMockCache();
+    const result = await acquireAsin({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      filePaths: [],
+      cache,
+      hardcoverApiKey: "",
+      existingAsin: "B000002IX7",
+      searchOpenLibrary: async () => "B00B8LXTKW",
+      searchHardcover: async () => null,
+    });
+    expect(result).toEqual({ asin: "B000002IX7", source: "existing-verified" });
+  });
+
+  it("cached ASIN takes priority over existing ASIN verification", async () => {
+    const cache = createMockCache({ "The Hobbit/Tolkien": "B00CACHED" });
+    const result = await acquireAsin({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      filePaths: [],
+      cache,
+      hardcoverApiKey: "",
+      existingAsin: "B000002IX7",
+      searchOpenLibrary: async () => null,
+      searchHardcover: async () => null,
+      verifyAsinFn: async () => false,
+    });
+    expect(result).toEqual({ asin: "B00CACHED", source: "cache" });
+  });
+
+  it("falls back to filename when existing ASIN verification fails and providers return nothing", async () => {
+    const cache = createMockCache();
+    const result = await acquireAsin({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      filePaths: ["/books/B00B8LXTKW.mp3"],
+      cache,
+      hardcoverApiKey: "",
+      existingAsin: "B000002IX7",
+      searchOpenLibrary: async () => null,
+      searchHardcover: async () => null,
+      verifyAsinFn: async () => false,
+    });
+    expect(result).toEqual({ asin: "B00B8LXTKW", source: "filename" });
+  });
+
+  it("falls back to Audible URL when providers and filename patterns fail", async () => {
+    const cache = createMockCache();
+    const result = await acquireAsin({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      filePaths: ["/books/readme.txt"],
+      cache,
+      hardcoverApiKey: "",
+      searchOpenLibrary: async () => null,
+      searchHardcover: async () => null,
+    });
+    expect(result).toEqual({ asin: null, source: "none" });
+  });
+
+  it("returns null when existing ASIN verification fails and all sources fail", async () => {
+    const cache = createMockCache();
+    const result = await acquireAsin({
+      identity: { title: "Unknown Book", author: "Nobody" },
+      filePaths: ["/books/unknown.mp3"],
+      cache,
+      hardcoverApiKey: "",
+      existingAsin: "B000002IX7",
+      searchOpenLibrary: async () => null,
+      searchHardcover: async () => null,
+      verifyAsinFn: async () => false,
+    });
+    expect(result).toEqual({ asin: null, source: "none" });
+  });
 });
 

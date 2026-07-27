@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Config } from "./config.js";
 import type { BookSet, AudioFile, Book, BookIdentity } from "./types.js";
 import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
-import { createAsinCache, acquireAsin } from "./providers/asin.js";
+import { createAsinCache, acquireAsin, verifyAsin } from "./providers/asin.js";
 import { searchOpenLibraryAsin } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 
@@ -104,8 +104,10 @@ async function processBook(bookSet: BookSet, config: Config, cache: ReturnType<t
     filePaths: bookSet.files.map((f) => f.path),
     cache,
     hardcoverApiKey: config.hardcover_api_key,
+    existingAsin: book.asin || undefined,
     searchOpenLibrary: searchOpenLibraryAsin,
     searchHardcover: searchHardcoverAsin,
+    verifyAsinFn: (asin, identity) => verifyAsin({ asin, identity }),
   });
 
   if (result.asin) {
