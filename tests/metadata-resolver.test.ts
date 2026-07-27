@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveMetadata } from "../src/providers/metadata-resolver.js";
+import { resolveMetadata, fetchNextCandidate } from "../src/providers/metadata-resolver.js";
 
 interface MockCall {
   url: string;
@@ -234,5 +234,140 @@ describe("resolveMetadata", () => {
     });
 
     expect(hardcoverCalled).toBe(false);
+  });
+});
+
+describe("fetchNextCandidate", () => {
+  it("returns Audnexus candidate first when ASIN is known", async () => {
+    const { mockFn, calls } = createMockFetch([
+      { status: 200, body: AUDNEXUS_RESPONSE },
+    ]);
+
+    const result = await fetchNextCandidate({
+      identity: { title: "Project Hail Mary", author: "Andy Weir" },
+      asin: "B08G9PRS1K",
+      hardcoverApiKey: "",
+      skipProviders: [],
+      fetchFn: mockFn,
+    });
+
+    expect(result.source).toBe("audnexus");
+    expect(result.metadata?.title).toBe("Project Hail Mary");
+    expect(calls[0].url).toContain("audnex.us");
+  });
+
+  it("falls through to Open Library when Audnexus fails on known ASIN", async () => {
+    const { mockFn, calls } = createMockFetch([
+      { status: 404, body: { error: "Not found" } },
+      {
+        status: 200,
+        body: {
+          numFound: 1,
+          docs: [{ key: "/works/OL1W", title: "The Hobbit", author_name: ["Tolkien"], isbn: ["0544003411"], cover_i: 258027 }],
+        },
+      },
+      {
+        status: 200,
+        body: {
+          numFound: 1,
+          docs: [{ key: "/works/OL1W", title: "The Hobbit", author_name: ["J.R.R. Tolkien"], isbn: ["0544003411"], cover_i: 258027 }],
+        },
+      },
+      { status: 200, body: AUDNEXUS_RESPONSE },
+    ]);
+
+    const result = await fetchNextCandidate({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      asin: "B08G9PRS1K",
+      hardcoverApiKey: "",
+      skipProviders: [],
+      fetchFn: mockFn,
+    });
+
+    expect(result.source).toBe("open-library");
+    expect(result.metadata).not.toBeNull();
+    expect(calls[0].url).toContain("audnex.us");
+    expect(calls[1].url).toContain("openlibrary.org");
+  });
+
+  it("skips Audnexus when in skipProviders and tries Open Library", async () => {
+    const { mockFn, calls } = createMockFetch([
+      {
+        status: 200,
+        body: {
+          numFound: 1,
+          docs: [{ key: "/works/OL1W", title: "The Hobbit", author_name: ["Tolkien"], isbn: ["0544003411"], cover_i: 258027 }],
+        },
+      },
+      {
+        status: 200,
+        body: {
+          numFound: 1,
+          docs: [{ key: "/works/OL1W", title: "The Hobbit", author_name: ["J.R.R. Tolkien"], isbn: ["0544003411"], cover_i: 258027 }],
+        },
+      },
+      { status: 200, body: AUDNEXUS_RESPONSE },
+    ]);
+
+    const result = await fetchNextCandidate({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      asin: "B08G9PRS1K",
+      hardcoverApiKey: "",
+      skipProviders: ["audnexus"],
+      fetchFn: mockFn,
+    });
+
+    expect(result.source).toBe("open-library");
+    expect(calls[0].url).not.toContain("audnex.us");
+    expect(calls[0].url).toContain("openlibrary.org");
+  });
+
+  it("skips Audnexus and Open Library, tries Hardcover", async () => {
+    const { mockFn, calls } = createMockFetch([
+      { status: 200, body: { data: { search: { ids: [123] } } } },
+      { status: 200, body: { data: { books: [{ editions: [{ asin: "B000002IX7" }] }] } } },
+      { status: 200, body: AUDNEXUS_RESPONSE },
+    ]);
+
+    const result = await fetchNextCandidate({
+      identity: { title: "The Hobbit", author: "Tolkien" },
+      asin: "B08G9PRS1K",
+      hardcoverApiKey: "test-key",
+      skipProviders: ["audnexus", "open-library"],
+      fetchFn: mockFn,
+    });
+
+    expect(result.source).toBe("hardcover");
+    expect(result.metadata?.asin).toBe("B08G9PRS1K");
+    expect(calls[0].url).toContain("hardcover");
+  });
+
+  it("returns null when all providers are skipped", async () => {
+    const result = await fetchNextCandidate({
+      identity: { title: "Any", author: "Any" },
+      asin: "B08G9PRS1K",
+      hardcoverApiKey: "test-key",
+      skipProviders: ["audnexus", "open-library", "hardcover"],
+    });
+
+    expect(result.metadata).toBeNull();
+    expect(result.source).toBe("none");
+  });
+
+  it("returns null when all providers fail", async () => {
+    const { mockFn } = createMockFetch([
+      { status: 200, body: { numFound: 0, docs: [] } },
+    ]);
+
+    const result = await fetchNextCandidate({
+      identity: { title: "Unknown", author: "Nobody" },
+      asin: null,
+      hardcoverApiKey: "",
+      skipProviders: [],
+      fetchFn: mockFn,
+    });
+
+    expect(result.metadata).toBeNull();
+    expect(result.source).toBe("none");
   });
 });
