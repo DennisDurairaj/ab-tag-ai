@@ -12,11 +12,13 @@
 - [x] Detect multi-file sets via directory + filename prefix matching
 - [x] Print summary: books found, files per book, any files missing metadata
 
-## Known limitation
+## Known limitation — FIXED
 
 `extractCommonStem` regex patterns (`src/scanner.ts:128-132`) only match stems ending with digit suffixes:
 - `/(.*?)[_\-\s]?\d+$/`
 - `/(.*?)[_\-\s]?Part\d+$/i`
 - `/(.*?)[_\-\s]?Chapter\s*\d+$/i`
 
-Files named like `57300_001_IN.mp3`, `57300_002_C001.mp3`, `57300_PRE.mp3` (common in LibriVox-style rips) don't share a common stem — the `_IN` and `_PRE` suffixes prevent grouping. Discovered while testing Elizabeth Peters' Vicky Bliss series.
+Files named like `57300_001_IN.mp3`, `57300_002_C001.mp3`, `57300_PRE.mp3` (common in LibriVox-style rips) don't share a common stem — the `_IN` and `_PRE` suffixes prevent grouping.
+
+**Fixed in `76df45f`:** `detectMultiFileSets` now falls back to treating all files in a directory as one multi-file set when `groupByStem` produces no groups of 2+. The directory name becomes the `commonStem`. Discovered and tested with Elizabeth Peters' Vicky Bliss / Trojan Gold series.
