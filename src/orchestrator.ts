@@ -378,50 +378,6 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     tagged("ABS", `Failed to PATCH metadata for item ${itemId}`, "red");
   }
 
-  let providerMatched = false;
-  try {
-    const matchPayload = {
-      provider: "audible",
-      asin,
-      title,
-      author,
-      series,
-      seriesPart,
-      overrideCover: false,
-      overrideDetails: true,
-    };
-    const matchResult = await withRetry("provider match", () => absClient.matchItem({ itemId, payload: matchPayload, fetchFn }));
-    providerMatched = matchResult.updated;
-
-    if (providerMatched) {
-      try {
-        const item = await withRetry("verify match", () => absClient.getItem({ itemId, fetchFn }));
-        const matchedMeta = item.libraryItem?.media?.metadata || {};
-        const matchedAuthor = getAuthorFromMeta(matchedMeta);
-        const matchedTitle = getTitleFromMeta(matchedMeta);
-
-        const authorOk = normalizeText(matchedAuthor) === normalizeText(author);
-        const titleOk = fuzzyMatch(matchedTitle, title);
-
-        if (!authorOk || !titleOk) {
-          tagged("ABS", `Match returned wrong metadata: author="${matchedAuthor}" title="${matchedTitle}" — reverting`, "magenta");
-          await withRetry("revert match", () =>
-            absClient.updateMedia({
-              itemId,
-              metadata: { asin, series: series ? [{ name: series, sequence: seriesPart || undefined }] : undefined },
-              fetchFn,
-            }),
-          );
-          providerMatched = false;
-        }
-      } catch {
-        tagged("ABS", `Failed to verify/revert match result for item ${itemId}`, "red");
-      }
-    }
-  } catch {
-    tagged("ABS", `Provider match failed for item ${itemId}`, "red");
-  }
-
   if (coverArt) {
     const tmpCoverPath = path.join(os.tmpdir(), `abs-cover-${Date.now()}.jpg`);
     try {
@@ -465,9 +421,8 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     }
   }
 
-  const matchNote = providerMatched ? " (matched to provider)" : "";
   return {
-    content: `Uploaded to Audiobookshelf: "${title}" by ${author} (${ctx.bookSet.files.length} files)${matchNote}`,
+    content: `Uploaded to Audiobookshelf: "${title}" by ${author} (${ctx.bookSet.files.length} files)`,
     terminal: { status: "written", outputDir: `abs://${ctx.config.absUrl}/library/${libraryId}`, filesWritten: ctx.bookSet.files.length },
   };
 }
