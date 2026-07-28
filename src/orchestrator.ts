@@ -10,7 +10,7 @@ import { buildBookFolderPath, writeCoverArt, copyFilesToOutput } from "./utils.j
 import { tagMultiFileSet, assignTrackNumbers } from "./taggers/index.js";
 import type { AsinCache } from "./providers/asin.js";
 import { flagForReview } from "./agent.js";
-import { createAbsClient } from "./providers/abs-client.js";
+import { createAbsClient, AbsServerError, AbsAuthError, AbsNotFoundError } from "./providers/abs-client.js";
 import type { AbsClient } from "./providers/abs-client.js";
 
 interface OrchestratorConfig {
@@ -29,7 +29,7 @@ interface OrchestratorConfig {
 }
 
 type OrchestrationResult =
-  | { status: "written"; outputDir: string; filesWritten: number }
+  | { status: "written"; outputDir: string; filesWritten: number; fallbackReason?: string }
   | { status: "skipped"; outputDir: string; reason: string }
   | { status: "flagged"; reason: string };
 
@@ -434,6 +434,82 @@ function fuzzyMatch(a: string, b: string): boolean {
   return false;
 }
 
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof AbsServerError) return true;
+  if (error instanceof AbsAuthError) return false;
+  if (error instanceof AbsNotFoundError) return false;
+  if (error instanceof Error && error.message.includes("rate limit")) return true;
+  if (error instanceof TypeError) return true;
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ETIMEDOUT" || code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ENOTFOUND") return true;
+  return false;
+}
+
+function errorLabel(error: unknown): string {
+  if (error instanceof AbsServerError) return `Server error ${error.status}`;
+  if (error instanceof AbsAuthError) return "401 Unauthorized";
+  if (error instanceof AbsNotFoundError) return "404 Not found";
+  if (error instanceof TypeError) return error.message.slice(0, 80);
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code) return code;
+  if (error instanceof Error) return error.message.slice(0, 80);
+  return String(error).slice(0, 80);
+}
+
+async function withRetry<T>(
+  name: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const delays = [1000, 2000, 4000];
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === delays.length) break;
+      if (!isRetryableError(error)) {
+        console.error(`  [ABS] ${name} failed: ${errorLabel(error)} — not retryable, falling back`);
+        throw error;
+      }
+
+      console.error(`  [ABS] ${name} retry ${attempt + 1}/3: ${errorLabel(error)}, retrying in ${delays[attempt] / 1000}s...`);
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
+  }
+
+  throw lastError;
+}
+
+function executeLocalFallback(
+  ctx: ToolContext,
+  author: string,
+  title: string,
+  series: string | undefined,
+  coverArt: Buffer | null,
+  reason: string,
+): { content: string; terminal: TerminalResult } {
+  const bookDir = buildBookFolderPath(ctx.config.outputDir, author, title, series);
+
+  if (ctx.config.dryRun) {
+    return {
+      content: plainResult(`[DRY-RUN] Would fall back to local: copy ${ctx.bookSet.files.length} files to ${bookDir} (${reason})`),
+      terminal: { status: "written", outputDir: bookDir, filesWritten: ctx.bookSet.files.length, fallbackReason: reason },
+    };
+  }
+
+  copyFilesToOutput(ctx.bookSet.files, bookDir);
+  writeCoverArt(coverArt, bookDir);
+
+  const coverMsg = coverArt ? "with cover art" : "without cover art";
+  return {
+    content: plainResult(`Fell back to local output: ${ctx.bookSet.files.length} file(s) to ${bookDir} ${coverMsg}`),
+    terminal: { status: "written", outputDir: bookDir, filesWritten: ctx.bookSet.files.length, fallbackReason: reason },
+  };
+}
+
 interface AbsUploadOptions {
   ctx: ToolContext;
   fetchFn: typeof fetch;
@@ -449,8 +525,16 @@ interface AbsUploadOptions {
 async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: string; terminal: TerminalResult }> {
   const { ctx, fetchFn, absClient, title, author, asin, series, seriesPart, coverArt } = options;
   const libraryId = ctx.config.absLibraryId;
+  const fallback = (reason: string) => executeLocalFallback(ctx, author, title, series, coverArt, reason);
 
-  const searchResult = await absClient.searchLibrary({ libraryId, query: asin, fetchFn });
+  let searchResult: { libraryItems: Array<{ id: string; media: { metadata: { title?: string; author?: string; series?: string } } }> };
+  try {
+    searchResult = await withRetry("search ASIN", () => absClient.searchLibrary({ libraryId, query: asin, fetchFn }));
+  } catch (err) {
+    console.error(`  [ABS] Duplicate check failed: ${errorLabel(err)} — falling back to local`);
+    return fallback(`Search error (${errorLabel(err)})`);
+  }
+
   if (searchResult.libraryItems.length > 0) {
     return {
       content: plainResult(`Skipped: ASIN ${asin} already exists in library "${title}"`),
@@ -458,8 +542,14 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     };
   }
 
-  const titleResult = await absClient.searchLibrary({ libraryId, query: title, fetchFn });
-  const duplicate = titleResult.libraryItems.find((item) => {
+  try {
+    searchResult = await withRetry("search title", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
+  } catch (err) {
+    console.error(`  [ABS] Duplicate check failed: ${errorLabel(err)} — falling back to local`);
+    return fallback(`Search error (${errorLabel(err)})`);
+  }
+
+  const duplicate = searchResult.libraryItems.find((item) => {
     const meta = item.media?.metadata || {};
     const itemAuthor = meta.author || "";
     const itemTitle = meta.title || "";
@@ -478,24 +568,28 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     filename: `${String(file.trackNumber).padStart(2, "0")} - ${path.basename(file.path)}`,
   }));
 
-  const rootFolderId = libraryId;
-
-  const uploadResult = await absClient.uploadFiles({
-    libraryId,
-    folderId: rootFolderId,
-    title,
-    author,
-    series,
-    files: numberedFiles.map((f) => f.sourcePath),
-    fileNames: numberedFiles.map((f) => f.filename),
-    fetchFn,
-  });
+  let uploadResult: { id: string; libraryItemId: string };
+  try {
+    uploadResult = await withRetry("upload", () => absClient.uploadFiles({
+      libraryId,
+      folderId: libraryId,
+      title,
+      author,
+      series,
+      files: numberedFiles.map((f) => f.sourcePath),
+      fileNames: numberedFiles.map((f) => f.filename),
+      fetchFn,
+    }));
+  } catch (err) {
+    console.error(`  [ABS] Upload failed: ${errorLabel(err)} — falling back to local`);
+    return fallback(`Upload failed (${errorLabel(err)})`);
+  }
 
   const uploadId = uploadResult.id || uploadResult.libraryItemId;
   let itemId = uploadResult.libraryItemId;
 
   if (!itemId) {
-    let pollDelays = [1000, 2000, 4000, 3000];
+    const pollDelays = [1000, 2000, 4000, 3000];
     const pollStart = Date.now();
     let found = false;
 
@@ -505,20 +599,22 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
 
       await new Promise((r) => setTimeout(r, delay));
 
-      const pollResult = await absClient.searchLibrary({ libraryId, query: title, fetchFn });
-      const match = pollResult.libraryItems.find((item) => item.id === uploadId || item.id === itemId);
-      if (match) {
-        itemId = match.id;
-        found = true;
-        break;
+      try {
+        const pollResult = await withRetry("poll", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
+        const match = pollResult.libraryItems.find((item) => item.id === uploadId || item.id === itemId);
+        if (match) {
+          itemId = match.id;
+          found = true;
+          break;
+        }
+      } catch {
+        continue;
       }
     }
 
     if (!found) {
-      return {
-        content: plainResult(`Uploaded but could not discover item ID for "${title}" — flagging for review`),
-        terminal: { status: "flagged", reason: `ABS upload succeeded but item ID not found for "${title}" (ASIN: ${asin})` },
-      };
+      console.error(`  [ABS] Could not discover item ID after upload — falling back to local`);
+      return fallback("Item ID not discovered after upload");
     }
   }
 
@@ -527,7 +623,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     const tmpCoverPath = path.join(os.tmpdir(), `abs-cover-${Date.now()}.jpg`);
     try {
       fs.writeFileSync(tmpCoverPath, coverArt);
-      await absClient.uploadCover({ itemId, coverPath: tmpCoverPath, fetchFn });
+      await withRetry("cover upload", () => absClient.uploadCover({ itemId, coverPath: tmpCoverPath, fetchFn }));
       coverUploadOk = true;
     } catch {
       console.error(`  [ABS] Cover upload failed for item ${itemId} — will set overrideCover: true for provider match`);
@@ -537,11 +633,11 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
   }
 
   try {
-    await absClient.updateMedia({
+    await withRetry("PATCH metadata", () => absClient.updateMedia({
       itemId,
       metadata: { asin, series, seriesPart },
       fetchFn,
-    });
+    }));
   } catch {
     console.error(`  [ABS] Failed to PATCH metadata for item ${itemId}`);
   }
@@ -557,14 +653,24 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     overrideDetails: false,
   };
 
-  let matchResult;
+  let matchResult: { updated: boolean } | undefined;
   try {
-    matchResult = await absClient.matchItem({ itemId, payload: matchPayload, fetchFn });
+    matchResult = await withRetry("provider match", () => absClient.matchItem({ itemId, payload: matchPayload, fetchFn }));
   } catch {
     console.error(`  [ABS] Provider match failed for item ${itemId}`);
   }
 
-  const verifyResult = await absClient.searchLibrary({ libraryId, query: asin, fetchFn });
+  let verifyResult: { libraryItems: Array<{ id: string; media: { metadata: { title?: string; author?: string; series?: string } } }> };
+  try {
+    verifyResult = await withRetry("verify", () => absClient.searchLibrary({ libraryId, query: asin, fetchFn }));
+  } catch {
+    console.error(`  [ABS] Verification search failed — flagging for review`);
+    return {
+      content: plainResult(`Could not verify "${title}" after upload`),
+      terminal: { status: "flagged", reason: `ABS verify search failed for "${title}" (ASIN: ${asin})` },
+    };
+  }
+
   const verifyItem = verifyResult.libraryItems.find((item) => item.id === itemId);
   if (verifyItem) {
     const verifyMeta = verifyItem.media?.metadata || {};

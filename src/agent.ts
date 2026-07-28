@@ -43,12 +43,22 @@ export async function processLibrary(config: Config): Promise<void> {
     absLibraryId: config.abs_library_id,
   });
 
+  const fallbacks: Array<{ title: string; reason: string }> = [];
+
   const concurrency = Math.max(1, config.concurrency);
   await processWithConcurrency(bookSets, concurrency, (bookSet) =>
-    processBook(bookSet, config, orchestrateBook)
+    processBook(bookSet, config, orchestrateBook, fallbacks)
   );
 
   asinCache.save();
+
+  if (fallbacks.length > 0) {
+    console.log("\n=== ABS FALLBACK SUMMARY ===");
+    console.log(`${fallbacks.length} book(s) fell back to local output:\n`);
+    for (const fb of fallbacks) {
+      console.log(`  - "${fb.title}": ${fb.reason}`);
+    }
+  }
 }
 
 async function processWithConcurrency<T>(
@@ -133,7 +143,12 @@ function printSummary(bookSets: BookSet[]): void {
   }
 }
 
-async function processBook(bookSet: BookSet, _config: Config, orchestrateBook: ReturnType<typeof createOrchestrator>): Promise<void> {
+async function processBook(
+  bookSet: BookSet,
+  _config: Config,
+  orchestrateBook: ReturnType<typeof createOrchestrator>,
+  fallbacks: Array<{ title: string; reason: string }>,
+): Promise<void> {
   const book = bookSet.books[0];
   if (!book) return;
 
@@ -142,7 +157,11 @@ async function processBook(bookSet: BookSet, _config: Config, orchestrateBook: R
   const result = await orchestrateBook(bookSet);
 
   if (result.status === "written") {
-    console.log(`  Written: ${result.outputDir} (${result.filesWritten} files)`);
+    const fallbackNote = result.fallbackReason ? ` (fell back: ${result.fallbackReason})` : "";
+    console.log(`  Written: ${result.outputDir} (${result.filesWritten} files)${fallbackNote}`);
+    if (result.fallbackReason) {
+      fallbacks.push({ title: book.title, reason: result.fallbackReason });
+    }
   } else if (result.status === "skipped") {
     console.log(`  Skipped: ${result.reason}`);
   } else {
