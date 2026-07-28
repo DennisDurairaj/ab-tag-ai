@@ -10,7 +10,7 @@ import { buildBookFolderPath, writeCoverArt, copyFilesToOutput } from "./utils.j
 import { tagMultiFileSet, assignTrackNumbers } from "./taggers/index.js";
 import type { AsinCache } from "./providers/asin.js";
 import { flagForReview } from "./agent.js";
-import { createAbsClient, AbsServerError, AbsAuthError, AbsNotFoundError } from "./providers/abs-client.js";
+import { createAbsClient, AbsServerError, AbsAuthError, AbsNotFoundError, AbsRateLimitError } from "./providers/abs-client.js";
 import type { AbsClient } from "./providers/abs-client.js";
 
 interface OrchestratorConfig {
@@ -436,9 +436,9 @@ function fuzzyMatch(a: string, b: string): boolean {
 
 function isRetryableError(error: unknown): boolean {
   if (error instanceof AbsServerError) return true;
+  if (error instanceof AbsRateLimitError) return true;
   if (error instanceof AbsAuthError) return false;
   if (error instanceof AbsNotFoundError) return false;
-  if (error instanceof Error && error.message.includes("rate limit")) return true;
   if (error instanceof TypeError) return true;
   const code = (error as NodeJS.ErrnoException).code;
   if (code === "ETIMEDOUT" || code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ENOTFOUND") return true;
@@ -447,6 +447,7 @@ function isRetryableError(error: unknown): boolean {
 
 function errorLabel(error: unknown): string {
   if (error instanceof AbsServerError) return `Server error ${error.status}`;
+  if (error instanceof AbsRateLimitError) return "429 Rate limited";
   if (error instanceof AbsAuthError) return "401 Unauthorized";
   if (error instanceof AbsNotFoundError) return "404 Not found";
   if (error instanceof TypeError) return error.message.slice(0, 80);

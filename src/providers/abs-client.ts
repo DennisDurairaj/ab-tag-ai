@@ -72,6 +72,13 @@ export class AbsServerError extends Error {
   }
 }
 
+export class AbsRateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AbsRateLimitError";
+  }
+}
+
 export interface AbsClient {
   uploadFiles(params: {
     libraryId: string;
@@ -126,6 +133,9 @@ async function checkResponse(response: Response): Promise<void> {
   }
   if (response.status === 404) {
     throw new AbsNotFoundError(body || "Not found");
+  }
+  if (response.status === 429) {
+    throw new AbsRateLimitError(body || "Rate limited");
   }
   if (response.status >= 500) {
     throw new AbsServerError(body || "Audiobookshelf server error", response.status);
