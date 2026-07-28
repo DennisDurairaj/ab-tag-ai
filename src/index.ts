@@ -20,6 +20,9 @@ async function main(): Promise<void> {
     .option("--include <patterns>", "Comma-separated author names or patterns to include")
     .option("--dry-run", "Preview changes without writing to disk", false)
     .option("--log-level <level>", "Logging level (debug, info, warn, error)", "info")
+    .option("--abs-url <url>", "Audiobookshelf server URL")
+    .option("--abs-token <token>", "Audiobookshelf API token")
+    .option("--abs-library-id <id>", "Audiobookshelf library ID")
     .parse(process.argv);
 
   const options = program.opts();
@@ -37,6 +40,9 @@ async function main(): Promise<void> {
   if (options.llmBaseUrl) cliOverrides.llm_api_base_url = options.llmBaseUrl;
   if (options.concurrency) cliOverrides.concurrency = Number(options.concurrency);
   if (options.include) cliOverrides.include = options.include.split(",").map((s: string) => s.trim());
+  if (options.absUrl) cliOverrides.abs_url = options.absUrl;
+  if (options.absToken) cliOverrides.abs_api_token = options.absToken;
+  if (options.absLibraryId) cliOverrides.abs_library_id = options.absLibraryId;
 
   config = mergeCliOverrides(config, cliOverrides as Partial<typeof config>);
 

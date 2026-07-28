@@ -386,6 +386,10 @@ function executeFlagForReview(
       concurrency: 1,
       include: [],
       log_level: "info",
+      output_mode: "local",
+      abs_url: "",
+      abs_api_token: "",
+      abs_library_id: "",
     }, reason);
   }
 

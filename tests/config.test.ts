@@ -157,24 +157,32 @@ describe("mergeCliOverrides — hardcover key", () => {
   });
 });
 
+function makeConfig(overrides: Partial<Config> = {}): Config {
+  return {
+    input: "/tmp/in",
+    output: "/tmp/out",
+    hardcover_api_key: "key",
+    dry_run: false,
+    llm_model: "test-model",
+    llm_api_key: "",
+    llm_api_base_url: "",
+    concurrency: 1,
+    include: [],
+    log_level: "info",
+    output_mode: "local",
+    abs_url: "",
+    abs_api_token: "",
+    abs_library_id: "",
+    ...overrides,
+  };
+}
+
 describe("dry-run enforcement", () => {
   let tmpDir: string;
 
   afterEach(() => {
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
   });
-
-  function makeConfig(overrides: Partial<Config> = {}): Config {
-    return {
-      input: "/tmp/in",
-      output: "/tmp/out",
-      hardcover_api_key: "key",
-      dry_run: false,
-      llm_model: "test-model",
-      log_level: "info",
-      ...overrides,
-    };
-  }
 
   it("flagForReview writes file when dry_run is false", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "audiobook-dryrun-test-"));
@@ -207,5 +215,121 @@ describe("dry-run enforcement", () => {
 
     const reviewDir = path.join(tmpDir, "review");
     expect(fs.existsSync(reviewDir)).toBe(false);
+  });
+});
+
+describe("loadConfig — ABS_API_TOKEN env var", () => {
+  const originalEnv = process.env.ABS_API_TOKEN;
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.ABS_API_TOKEN;
+    } else {
+      process.env.ABS_API_TOKEN = originalEnv;
+    }
+  });
+
+  it("reads ABS_API_TOKEN env var when config file has no token", () => {
+    const tmpDir = makeTmpDir();
+    const configPath = path.join(tmpDir, "config.yaml");
+    fs.writeFileSync(configPath, "input: /in\noutput: /out\n");
+    process.env.ABS_API_TOKEN = "env-abs-token";
+    const config = loadConfig(configPath);
+    expect(config.abs_api_token).toBe("env-abs-token");
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("env var overrides config file abs_api_token", () => {
+    const tmpDir = makeTmpDir();
+    const configPath = path.join(tmpDir, "config.yaml");
+    fs.writeFileSync(configPath, "input: /in\noutput: /out\nabs_api_token: file-token\n");
+    process.env.ABS_API_TOKEN = "env-token";
+    const config = loadConfig(configPath);
+    expect(config.abs_api_token).toBe("env-token");
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("config file value used when ABS_API_TOKEN not set", () => {
+    const tmpDir = makeTmpDir();
+    const configPath = path.join(tmpDir, "config.yaml");
+    fs.writeFileSync(configPath, "input: /in\noutput: /out\nabs_api_token: file-token\n");
+    delete process.env.ABS_API_TOKEN;
+    const config = loadConfig(configPath);
+    expect(config.abs_api_token).toBe("file-token");
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe("validateConfig — ABS mode", () => {
+  it("validates successfully when output_mode is local with no ABS keys", () => {
+    const config = makeConfig({ output_mode: "local", abs_url: "", abs_api_token: "", abs_library_id: "" });
+    expect(validateConfig(config)).toEqual([]);
+  });
+
+  it("returns errors when output_mode is audiobookshelf and abs_url is missing", () => {
+    const config = makeConfig({
+      output_mode: "audiobookshelf",
+      abs_url: "",
+      abs_api_token: "token",
+      abs_library_id: "lib-1",
+    });
+    expect(validateConfig(config)).toContain("abs_url is required when output_mode is 'audiobookshelf'");
+  });
+
+  it("returns errors when output_mode is audiobookshelf and abs_api_token is missing", () => {
+    const config = makeConfig({
+      output_mode: "audiobookshelf",
+      abs_url: "https://abs.example.com",
+      abs_api_token: "",
+      abs_library_id: "lib-1",
+    });
+    expect(validateConfig(config)).toContain("abs_api_token is required when output_mode is 'audiobookshelf'");
+  });
+
+  it("returns errors when output_mode is audiobookshelf and abs_library_id is missing", () => {
+    const config = makeConfig({
+      output_mode: "audiobookshelf",
+      abs_url: "https://abs.example.com",
+      abs_api_token: "token",
+      abs_library_id: "",
+    });
+    expect(validateConfig(config)).toContain("abs_library_id is required when output_mode is 'audiobookshelf'");
+  });
+
+  it("returns all three abs errors when all missing in audiobookshelf mode", () => {
+    const config = makeConfig({
+      output_mode: "audiobookshelf",
+      abs_url: "",
+      abs_api_token: "",
+      abs_library_id: "",
+    });
+    const errors = validateConfig(config);
+    expect(errors).toContain("abs_url is required when output_mode is 'audiobookshelf'");
+    expect(errors).toContain("abs_api_token is required when output_mode is 'audiobookshelf'");
+    expect(errors).toContain("abs_library_id is required when output_mode is 'audiobookshelf'");
+  });
+
+  it("returns no ABS errors when all abs_* keys are set in audiobookshelf mode", () => {
+    const config = makeConfig({
+      output_mode: "audiobookshelf",
+      abs_url: "https://abs.example.com",
+      abs_api_token: "token",
+      abs_library_id: "lib-1",
+    });
+    expect(validateConfig(config)).toEqual([]);
+  });
+});
+
+describe("loadConfig — backward compatibility", () => {
+  it("existing config without ABS keys loads with defaults", () => {
+    const tmpDir = makeTmpDir();
+    const configPath = path.join(tmpDir, "config.yaml");
+    fs.writeFileSync(configPath, "input: /mnt/audiobooks\noutput: /mnt/output\ndry_run: false\n");
+    const config = loadConfig(configPath);
+    expect(config.output_mode).toBe("local");
+    expect(config.abs_url).toBe("");
+    expect(config.abs_api_token).toBe("");
+    expect(config.abs_library_id).toBe("");
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

@@ -13,6 +13,10 @@ export interface Config {
   concurrency: number;
   include: string[];
   log_level: LogLevel;
+  output_mode: "local" | "audiobookshelf";
+  abs_url: string;
+  abs_api_token: string;
+  abs_library_id: string;
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -26,6 +30,10 @@ const DEFAULT_CONFIG: Config = {
   concurrency: 1,
   include: [],
   log_level: "info",
+  output_mode: "local",
+  abs_url: "",
+  abs_api_token: "",
+  abs_library_id: "",
 };
 
 export function loadConfig(configPath: string): Config {
@@ -48,6 +56,9 @@ function envOverrides(): Partial<Config> {
   if (process.env.LLM_API_BASE_URL) {
     overrides.llm_api_base_url = process.env.LLM_API_BASE_URL;
   }
+  if (process.env.ABS_API_TOKEN) {
+    overrides.abs_api_token = process.env.ABS_API_TOKEN;
+  }
   return overrides;
 }
 
@@ -65,6 +76,17 @@ export function validateConfig(config: Config): string[] {
   }
   if (!config.hardcover_api_key) {
     errors.push("hardcover_api_key is required");
+  }
+  if (config.output_mode === "audiobookshelf") {
+    if (!config.abs_url) {
+      errors.push("abs_url is required when output_mode is 'audiobookshelf'");
+    }
+    if (!config.abs_api_token) {
+      errors.push("abs_api_token is required when output_mode is 'audiobookshelf'");
+    }
+    if (!config.abs_library_id) {
+      errors.push("abs_library_id is required when output_mode is 'audiobookshelf'");
+    }
   }
   return errors;
 }
