@@ -37,6 +37,10 @@ export async function processLibrary(config: Config): Promise<void> {
     outputDir: config.output,
     dryRun: config.dry_run,
     cache: asinCache,
+    outputMode: config.output_mode,
+    absUrl: config.abs_url,
+    absApiToken: config.abs_api_token,
+    absLibraryId: config.abs_library_id,
   });
 
   const concurrency = Math.max(1, config.concurrency);
@@ -139,6 +143,8 @@ async function processBook(bookSet: BookSet, _config: Config, orchestrateBook: R
 
   if (result.status === "written") {
     console.log(`  Written: ${result.outputDir} (${result.filesWritten} files)`);
+  } else if (result.status === "skipped") {
+    console.log(`  Skipped: ${result.reason}`);
   } else {
     console.log(`  Flagged: ${result.reason}`);
   }

@@ -208,3 +208,203 @@ describe("orchestrateBook", () => {
     expect(fakeFetch).toHaveBeenCalledTimes(100);
   });
 });
+
+describe("orchestrateBook — ABS upload flow", () => {
+  const ABS_URL = "https://abs.example.com";
+  const ABS_LIBRARY_ID = "lib-1";
+  const ABS_ALBUM_PATH = path.join("Author", "Test Book");
+
+  function createDummyMp3(dir: string, name: string): string {
+    const filePath = path.join(dir, name);
+    const minimalMp3 = Buffer.from([
+      0xff, 0xfb, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    fs.writeFileSync(filePath, minimalMp3);
+    return filePath;
+  }
+
+  it("trust path: LLM writes to ABS, upload succeeds, returns written", async () => {
+    const bookDir = path.join(tmpDir, ABS_ALBUM_PATH);
+    fs.mkdirSync(bookDir, { recursive: true });
+    const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
+    const bookSet = mkBookSet([mkFile(sourcePath)]);
+
+    let searchCallCount = 0;
+    const fakeFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = input.toString();
+
+      if (url.includes("/chat/completions")) {
+        return { ok: true, json: () => mockChatResponse(null, [
+          { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
+        ]) };
+      }
+
+      if (url.includes("/api/libraries/lib-1/search")) {
+        searchCallCount++;
+        if (searchCallCount <= 2) return { ok: true, json: () => ({ libraryItems: [] }) };
+        return { ok: true, json: () => ({
+          libraryItems: [
+            { id: "item-1", media: { metadata: { title: "Test Book", author: "Author" } } },
+          ],
+        }) };
+      }
+
+      if (url.includes("/api/upload")) {
+        return { ok: true, json: () => ({ id: "upload-1", libraryItemId: "item-1" }) };
+      }
+
+      if (url.includes("/api/items/item-1/cover")) {
+        return { ok: true, status: 200 };
+      }
+
+      if (url.includes("/api/items/item-1/media")) {
+        return { ok: true, status: 200 };
+      }
+
+      if (url.includes("/api/items/item-1/match")) {
+        return { ok: true, json: () => ({ updated: true }) };
+      }
+
+      return { ok: false, status: 404 };
+    });
+
+    const orchestrate = createOrchestrator({
+      model: "test-model",
+      apiKey: "test-key",
+      hardcoverApiKey: "test-hc-key",
+      outputDir,
+      dryRun: false,
+      fetchFn: fakeFetch as unknown as typeof fetch,
+      cache,
+      outputMode: "audiobookshelf",
+      absUrl: ABS_URL,
+      absApiToken: "abs-token",
+      absLibraryId: ABS_LIBRARY_ID,
+    });
+
+    const result = await orchestrate(bookSet);
+    expect(result.status).toBe("written");
+    if (result.status === "written") {
+      expect(result.outputDir).toContain("abs://");
+      expect(result.filesWritten).toBe(1);
+    }
+  });
+
+  it("duplicate skip path: ABS search finds ASIN match, returns skipped", async () => {
+    const bookDir = path.join(tmpDir, ABS_ALBUM_PATH);
+    fs.mkdirSync(bookDir, { recursive: true });
+    const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
+    const bookSet = mkBookSet([mkFile(sourcePath)]);
+
+    let call = 0;
+    const fakeFetch = vi.fn(async (input: string | URL) => {
+      const url = input.toString();
+      call++;
+
+      if (url.includes("/chat/completions")) {
+        return { ok: true, json: () => mockChatResponse(null, [
+          { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
+        ]) };
+      }
+
+      if (url.includes("/api/libraries/lib-1/search")) {
+        return { ok: true, json: () => ({
+          libraryItems: [
+            { id: "existing-1", media: { metadata: { title: "Test Book", author: "Author" } } },
+          ],
+        }) };
+      }
+
+      return { ok: false, status: 404 };
+    });
+
+    const orchestrate = createOrchestrator({
+      model: "test-model",
+      apiKey: "test-key",
+      hardcoverApiKey: "test-hc-key",
+      outputDir,
+      dryRun: false,
+      fetchFn: fakeFetch as unknown as typeof fetch,
+      cache,
+      outputMode: "audiobookshelf",
+      absUrl: ABS_URL,
+      absApiToken: "abs-token",
+      absLibraryId: ABS_LIBRARY_ID,
+    });
+
+    const result = await orchestrate(bookSet);
+    expect(result.status).toBe("skipped");
+    if (result.status === "skipped") {
+      expect(result.reason).toContain("Duplicate ASIN");
+    }
+  });
+
+  it("verify-mismatch flag path: upload succeeds but verify finds wrong metadata", async () => {
+    const bookDir = path.join(tmpDir, ABS_ALBUM_PATH);
+    fs.mkdirSync(bookDir, { recursive: true });
+    const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
+    const bookSet = mkBookSet([mkFile(sourcePath)]);
+
+    let call = 0;
+    const fakeFetch = vi.fn(async (input: string | URL) => {
+      const url = input.toString();
+      call++;
+
+      if (url.includes("/chat/completions")) {
+        return { ok: true, json: () => mockChatResponse(null, [
+          { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
+        ]) };
+      }
+
+      if (url.includes("/api/libraries/lib-1/search")) {
+        if (call <= 2) return { ok: true, json: () => ({ libraryItems: [] }) };
+        return { ok: true, json: () => ({
+          libraryItems: [
+            { id: "item-1", media: { metadata: { title: "Wrong Title", author: "Wrong Author" } } },
+          ],
+        }) };
+      }
+
+      if (url.includes("/api/upload")) {
+        return { ok: true, json: () => ({ id: "upload-1", libraryItemId: "item-1" }) };
+      }
+
+      if (url.includes("/api/items/item-1/cover")) {
+        return { ok: false, status: 500 };
+      }
+
+      if (url.includes("/api/items/item-1/media")) {
+        return { ok: true, status: 200 };
+      }
+
+      if (url.includes("/api/items/item-1/match")) {
+        return { ok: true, json: () => ({ updated: true }) };
+      }
+
+      return { ok: false, status: 404 };
+    });
+
+    const orchestrate = createOrchestrator({
+      model: "test-model",
+      apiKey: "test-key",
+      hardcoverApiKey: "test-hc-key",
+      outputDir,
+      dryRun: false,
+      fetchFn: fakeFetch as unknown as typeof fetch,
+      cache,
+      outputMode: "audiobookshelf",
+      absUrl: ABS_URL,
+      absApiToken: "abs-token",
+      absLibraryId: ABS_LIBRARY_ID,
+    });
+
+    const result = await orchestrate(bookSet);
+    expect(result.status).toBe("flagged");
+    if (result.status === "flagged") {
+      expect(result.reason).toContain("ABS verify mismatch");
+      expect(result.reason).toContain("Wrong Title");
+      expect(result.reason).toContain("Wrong Author");
+    }
+  });
+});

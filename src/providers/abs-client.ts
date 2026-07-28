@@ -80,6 +80,7 @@ export interface AbsClient {
     author: string;
     series?: string;
     files: string[];
+    fileNames?: string[];
     fetchFn?: typeof fetch;
   }): Promise<AbsUploadResult>;
 
@@ -136,16 +137,16 @@ export function createAbsClient(config: AbsClientConfig): AbsClient {
   const baseUrl = stripTrailingSlash(config.url);
 
   return {
-    async uploadFiles({ libraryId, folderId, title, author, series, files, fetchFn = fetch }) {
+    async uploadFiles({ libraryId, folderId, title, author, series, files, fileNames, fetchFn = fetch }) {
       const params = new URLSearchParams({ library: libraryId, folder: folderId });
       const formData = new FormData();
       formData.append("title", title);
       formData.append("author", author);
       if (series) formData.append("series", series);
 
-      for (const filePath of files) {
-        const buffer = await fs.promises.readFile(filePath);
-        const name = path.basename(filePath);
+      for (let i = 0; i < files.length; i++) {
+        const buffer = await fs.promises.readFile(files[i]);
+        const name = fileNames?.[i] ?? path.basename(files[i]);
         formData.append("files", new File([buffer], name));
       }
 

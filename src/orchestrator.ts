@@ -1,13 +1,17 @@
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
 import type { BookSet, ResolvedMetadata } from "./types.js";
 import { validateAsin } from "./providers/asin.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { lookupAudnexusBook } from "./providers/audnexus.js";
 import { findLocalCoverArt, downloadAndResizeCover } from "./providers/cover-art.js";
 import { buildBookFolderPath, writeCoverArt, copyFilesToOutput } from "./utils.js";
-import { tagMultiFileSet } from "./taggers/index.js";
+import { tagMultiFileSet, assignTrackNumbers } from "./taggers/index.js";
 import type { AsinCache } from "./providers/asin.js";
 import { flagForReview } from "./agent.js";
+import { createAbsClient } from "./providers/abs-client.js";
+import type { AbsClient } from "./providers/abs-client.js";
 
 interface OrchestratorConfig {
   model: string;
@@ -18,10 +22,15 @@ interface OrchestratorConfig {
   dryRun: boolean;
   fetchFn?: typeof fetch;
   cache: AsinCache;
+  outputMode: "local" | "audiobookshelf";
+  absUrl: string;
+  absApiToken: string;
+  absLibraryId: string;
 }
 
 type OrchestrationResult =
   | { status: "written"; outputDir: string; filesWritten: number }
+  | { status: "skipped"; outputDir: string; reason: string }
   | { status: "flagged"; reason: string };
 
 interface ToolContext {
@@ -330,12 +339,56 @@ async function executeWriteOutput(
   const coverUrl = args.coverUrl ? String(args.coverUrl) : undefined;
   const coverId = args.coverId !== undefined ? Number(args.coverId) : undefined;
 
-  const bookDir = buildBookFolderPath(ctx.config.outputDir, author, title, series);
+  const outputMode = ctx.config.outputMode;
+
+  if (outputMode === "local") {
+    const bookDir = buildBookFolderPath(ctx.config.outputDir, author, title, series);
+
+    if (ctx.config.dryRun) {
+      return {
+        content: plainResult(`[DRY-RUN] Would write ${ctx.bookSet.files.length} files to ${bookDir}`),
+        terminal: { status: "written", outputDir: bookDir, filesWritten: ctx.bookSet.files.length },
+      };
+    }
+
+    const coverArt = ctx.localCover
+      ?? await downloadAndResizeCover({ coverUrl, coverId: coverId && coverId > 0 ? coverId : undefined });
+
+    const resolved: ResolvedMetadata = {
+      title,
+      author,
+      asin,
+      series,
+      seriesPart,
+      narrator,
+      coverUrl,
+      coverId,
+    };
+
+    tagMultiFileSet(ctx.bookSet.files, resolved, coverArt ?? undefined);
+
+    const copiedFiles = copyFilesToOutput(ctx.bookSet.files, bookDir);
+
+    writeCoverArt(coverArt, bookDir);
+
+    const coverMsg = coverArt ? "with cover art" : "without cover art";
+    return {
+      content: plainResult(`Written ${copiedFiles.length} file(s) to ${bookDir} ${coverMsg}`),
+      terminal: { status: "written", outputDir: bookDir, filesWritten: copiedFiles.length },
+    };
+  }
+
+  const absConfig = {
+    url: ctx.config.absUrl,
+    apiToken: ctx.config.absApiToken,
+    libraryId: ctx.config.absLibraryId,
+  };
+  const absClient = createAbsClient(absConfig);
 
   if (ctx.config.dryRun) {
     return {
-      content: plainResult(`[DRY-RUN] Would write ${ctx.bookSet.files.length} files to ${bookDir}`),
-      terminal: { status: "written", outputDir: bookDir, filesWritten: ctx.bookSet.files.length },
+      content: plainResult(`[DRY-RUN] Would upload "${title}" by ${author} (${ctx.bookSet.files.length} files) to Audiobookshelf library ${ctx.config.absLibraryId}`),
+      terminal: { status: "written", outputDir: `abs://${ctx.config.absUrl}/library/${ctx.config.absLibraryId}`, filesWritten: ctx.bookSet.files.length },
     };
   }
 
@@ -355,14 +408,187 @@ async function executeWriteOutput(
 
   tagMultiFileSet(ctx.bookSet.files, resolved, coverArt ?? undefined);
 
-  const copiedFiles = copyFilesToOutput(ctx.bookSet.files, bookDir);
+  return executeAbsUpload({
+    ctx,
+    fetchFn: ctx.config.fetchFn || fetch,
+    absClient,
+    title,
+    author,
+    asin,
+    series,
+    seriesPart,
+    coverArt,
+  });
+}
 
-  writeCoverArt(coverArt, bookDir);
+function normalizeText(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
 
-  const coverMsg = coverArt ? "with cover art" : "without cover art";
+function fuzzyMatch(a: string, b: string): boolean {
+  const normA = normalizeText(a);
+  const normB = normalizeText(b);
+  if (normA === normB) return true;
+  if (normA.includes(normB) || normB.includes(normA)) return true;
+  if (normA.replace(/[^a-z0-9]/g, "") === normB.replace(/[^a-z0-9]/g, "")) return true;
+  return false;
+}
+
+interface AbsUploadOptions {
+  ctx: ToolContext;
+  fetchFn: typeof fetch;
+  absClient: AbsClient;
+  title: string;
+  author: string;
+  asin: string;
+  series?: string;
+  seriesPart?: string;
+  coverArt: Buffer | null;
+}
+
+async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: string; terminal: TerminalResult }> {
+  const { ctx, fetchFn, absClient, title, author, asin, series, seriesPart, coverArt } = options;
+  const libraryId = ctx.config.absLibraryId;
+
+  const searchResult = await absClient.searchLibrary({ libraryId, query: asin, fetchFn });
+  if (searchResult.libraryItems.length > 0) {
+    return {
+      content: plainResult(`Skipped: ASIN ${asin} already exists in library "${title}"`),
+      terminal: { status: "skipped", outputDir: `abs:${libraryId}`, reason: `Duplicate ASIN ${asin}: "${title}"` },
+    };
+  }
+
+  const titleResult = await absClient.searchLibrary({ libraryId, query: title, fetchFn });
+  const duplicate = titleResult.libraryItems.find((item) => {
+    const meta = item.media?.metadata || {};
+    const itemAuthor = meta.author || "";
+    const itemTitle = meta.title || "";
+    return normalizeText(itemAuthor) === normalizeText(author) && fuzzyMatch(itemTitle, title);
+  });
+  if (duplicate) {
+    return {
+      content: plainResult(`Skipped: "${title}" by ${author} already exists in library`),
+      terminal: { status: "skipped", outputDir: `abs:${libraryId}`, reason: `Duplicate title+author: "${title}" by ${author}` },
+    };
+  }
+
+  const tracked = assignTrackNumbers(ctx.bookSet.files);
+  const numberedFiles = tracked.map((file) => ({
+    sourcePath: file.path,
+    filename: `${String(file.trackNumber).padStart(2, "0")} - ${path.basename(file.path)}`,
+  }));
+
+  const rootFolderId = libraryId;
+
+  const uploadResult = await absClient.uploadFiles({
+    libraryId,
+    folderId: rootFolderId,
+    title,
+    author,
+    series,
+    files: numberedFiles.map((f) => f.sourcePath),
+    fileNames: numberedFiles.map((f) => f.filename),
+    fetchFn,
+  });
+
+  const uploadId = uploadResult.id || uploadResult.libraryItemId;
+  let itemId = uploadResult.libraryItemId;
+
+  if (!itemId) {
+    let pollDelays = [1000, 2000, 4000, 3000];
+    const pollStart = Date.now();
+    let found = false;
+
+    for (const delay of pollDelays) {
+      const elapsed = Date.now() - pollStart;
+      if (elapsed > 10000) break;
+
+      await new Promise((r) => setTimeout(r, delay));
+
+      const pollResult = await absClient.searchLibrary({ libraryId, query: title, fetchFn });
+      const match = pollResult.libraryItems.find((item) => item.id === uploadId || item.id === itemId);
+      if (match) {
+        itemId = match.id;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      return {
+        content: plainResult(`Uploaded but could not discover item ID for "${title}" — flagging for review`),
+        terminal: { status: "flagged", reason: `ABS upload succeeded but item ID not found for "${title}" (ASIN: ${asin})` },
+      };
+    }
+  }
+
+  let coverUploadOk = false;
+  if (coverArt) {
+    const tmpCoverPath = path.join(os.tmpdir(), `abs-cover-${Date.now()}.jpg`);
+    try {
+      fs.writeFileSync(tmpCoverPath, coverArt);
+      await absClient.uploadCover({ itemId, coverPath: tmpCoverPath, fetchFn });
+      coverUploadOk = true;
+    } catch {
+      console.error(`  [ABS] Cover upload failed for item ${itemId} — will set overrideCover: true for provider match`);
+    } finally {
+      try { fs.unlinkSync(tmpCoverPath); } catch { /* ignore */ }
+    }
+  }
+
+  try {
+    await absClient.updateMedia({
+      itemId,
+      metadata: { asin, series, seriesPart },
+      fetchFn,
+    });
+  } catch {
+    console.error(`  [ABS] Failed to PATCH metadata for item ${itemId}`);
+  }
+
+  const matchPayload = {
+    provider: "audible",
+    asin,
+    title,
+    author,
+    series,
+    seriesPart,
+    overrideCover: !coverUploadOk,
+    overrideDetails: false,
+  };
+
+  let matchResult;
+  try {
+    matchResult = await absClient.matchItem({ itemId, payload: matchPayload, fetchFn });
+  } catch {
+    console.error(`  [ABS] Provider match failed for item ${itemId}`);
+  }
+
+  const verifyResult = await absClient.searchLibrary({ libraryId, query: asin, fetchFn });
+  const verifyItem = verifyResult.libraryItems.find((item) => item.id === itemId);
+  if (verifyItem) {
+    const verifyMeta = verifyItem.media?.metadata || {};
+    const absAuthor = verifyMeta.author || "";
+    const absTitle = verifyMeta.title || "";
+
+    const authorOk = normalizeText(absAuthor) === normalizeText(author);
+    const titleOk = fuzzyMatch(absTitle, title);
+
+    if (!authorOk || !titleOk) {
+      const detailParts: string[] = [];
+      if (!authorOk) detailParts.push(`author mismatch: expected "${author}", got "${absAuthor}"`);
+      if (!titleOk) detailParts.push(`title mismatch: expected "${title}", got "${absTitle}"`);
+      return {
+        content: plainResult(`Verify failed: ${detailParts.join("; ")}`),
+        terminal: { status: "flagged", reason: `ABS verify mismatch for "${title}" (ASIN: ${asin}): ${detailParts.join("; ")}` },
+      };
+    }
+  }
+
+  const matchNote = matchResult?.updated ? " (matched to provider)" : "";
   return {
-    content: plainResult(`Written ${copiedFiles.length} file(s) to ${bookDir} ${coverMsg}`),
-    terminal: { status: "written", outputDir: bookDir, filesWritten: copiedFiles.length },
+    content: plainResult(`Uploaded to Audiobookshelf: "${title}" by ${author} (${ctx.bookSet.files.length} files)${matchNote}`),
+    terminal: { status: "written", outputDir: `abs://${ctx.config.absUrl}/library/${libraryId}`, filesWritten: ctx.bookSet.files.length },
   };
 }
 
