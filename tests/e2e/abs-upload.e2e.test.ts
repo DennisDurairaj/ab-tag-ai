@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { execFileSync } from "node:child_process";
 import type { BookSet, AudioFile } from "../../src/types.js";
 import { createAsinCache } from "../../src/providers/asin.js";
 import { createOrchestrator } from "../../src/orchestrator.js";
@@ -66,20 +65,19 @@ function createE2eFetch(
   }) as typeof fetch;
 }
 
+const SAMPLE_MP3 = path.join(import.meta.dirname, "fixtures", "sample.mp3");
+const REAL_CHAPTER = path.join(
+  import.meta.dirname,
+  "..",
+  "..",
+  "Riordan, Rick",
+  "Gudene fra Olympos",
+  "Gudene fra Olympos 1 - Den forsvunne helten",
+  "001 Den forsvunne helten.mp3",
+);
+
 function createMinimalMp3(filePath: string): void {
-  execFileSync(
-    "ffmpeg",
-    [
-      "-f", "lavfi",
-      "-i", "anullsrc=r=44100:cl=stereo",
-      "-t", "3",
-      "-c:a", "libmp3lame",
-      "-b:a", "64k",
-      filePath,
-      "-y",
-    ],
-    { stdio: "ignore" },
-  );
+  fs.copyFileSync(SAMPLE_MP3, filePath);
 }
 
 function searchByAsin(env: AbsTestEnv, asin: string): Promise<unknown> {
@@ -335,6 +333,68 @@ describe("ABS E2E — Docker integration", () => {
       if (result2.status === "skipped") {
         expect(result2.reason).toContain("Duplicate");
         expect(result2.reason).toContain(asin);
+      }
+    },
+    120000,
+  );
+
+  it(
+    "real-book: uploads an actual chapter from disk and verifies it appears in library",
+    async () => {
+      const tmpDir = createTestDir();
+      const outputDir = path.join(tmpDir, "output");
+      const cache = createAsinCache(tmpDir);
+
+      const bookDir = path.join(tmpDir, "Riordan, Rick", "The Lost Hero");
+      fs.mkdirSync(bookDir, { recursive: true });
+      const destPath = path.join(bookDir, "001.mp3");
+      fs.copyFileSync(REAL_CHAPTER, destPath);
+
+      const bookSet = mkBookSet([mkFile(destPath)]);
+
+      const title = "The Lost Hero";
+      const author = "Rick Riordan";
+      const asin = "REALTEST001";
+
+      const e2eFetch = createE2eFetch(
+        () => makeWriteOutputChat(title, author, asin),
+        fetch,
+      );
+
+      const orchestrate = createOrchestrator({
+        model: "test-model",
+        apiKey: "test-key",
+        hardcoverApiKey: "test-hc-key",
+        outputDir,
+        dryRun: false,
+        fetchFn: e2eFetch as typeof fetch,
+        cache,
+        outputMode: "audiobookshelf",
+        absUrl: env.url,
+        absApiToken: env.apiToken,
+        absLibraryId: env.libraryId,
+      });
+
+      const result = await orchestrate(bookSet);
+
+      expect(result.status).toBe("written");
+      if (result.status === "written") {
+        expect(result.outputDir).toContain("abs://");
+      }
+
+      const searchResult = (await searchByAsin(env, asin)) as {
+        book?: Array<{
+          libraryItem: { id: string; media: { metadata: { title?: string; authorName?: string } } };
+        }>;
+      };
+
+      expect(searchResult.book).toBeDefined();
+      const item = searchResult.book!.find(
+        (i) => i.libraryItem?.media?.metadata?.title === title,
+      );
+      expect(item).toBeDefined();
+      if (item) {
+        expect(item.libraryItem.media.metadata.authorName).toBe(author);
       }
     },
     120000,
