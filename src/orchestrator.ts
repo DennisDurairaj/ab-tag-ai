@@ -6,7 +6,7 @@ import { validateAsin } from "./providers/asin.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { lookupAudnexusBook } from "./providers/audnexus.js";
 import { findLocalCoverArt, downloadAndResizeCover } from "./providers/cover-art.js";
-import { buildBookFolderPath, writeCoverArt, copyFilesToOutput } from "./utils.js";
+import { buildBookFolderPath, writeCoverArt, copyFilesToOutput, delay } from "./utils.js";
 import { tagMultiFileSet, assignTrackNumbers } from "./taggers/index.js";
 import type { AsinCache } from "./providers/asin.js";
 import { flagForReview } from "./agent.js";
@@ -253,6 +253,8 @@ async function executeSearchOpenLibrary(
     return plainResult(`No valid ASIN found on Open Library for "${title}" by ${author}`);
   } catch {
     return plainResult(`Open Library search request failed for "${title}" by ${author}`);
+  } finally {
+    await delay(1100);
   }
 }
 
@@ -274,16 +276,20 @@ async function executeSearchHardcover(
     return plainResult(`Found cached ASIN for "${title}" by ${author}: ${cached}`);
   }
 
-  const result = await searchHardcoverAsin({ title, author }, ctx.config.hardcoverApiKey, fetchFn);
-  if (result.asin) {
-    ctx.cache.set(key, result.asin);
-    const parts = [`Found Hardcover candidate: ASIN ${result.asin}`];
-    if (result.series) parts.push(`series "${result.series}"`);
-    if (result.seriesPart) parts.push(`part ${result.seriesPart}`);
-    return plainResult(parts.join(", "));
-  }
+  try {
+    const result = await searchHardcoverAsin({ title, author }, ctx.config.hardcoverApiKey, fetchFn);
+    if (result.asin) {
+      ctx.cache.set(key, result.asin);
+      const parts = [`Found Hardcover candidate: ASIN ${result.asin}`];
+      if (result.series) parts.push(`series "${result.series}"`);
+      if (result.seriesPart) parts.push(`part ${result.seriesPart}`);
+      return plainResult(parts.join(", "));
+    }
 
-  return plainResult(`No results found on Hardcover for "${title}" by ${author}`);
+    return plainResult(`No results found on Hardcover for "${title}" by ${author}`);
+  } finally {
+    await delay(1000);
+  }
 }
 
 async function executeFetchAudnexus(
@@ -293,18 +299,22 @@ async function executeFetchAudnexus(
 ): Promise<string> {
   const asin = String(args.asin || "");
 
-  const book = await lookupAudnexusBook(asin, { fetchFn });
-  if (!book) {
-    return plainResult(`Audnexus lookup failed for ASIN: ${asin}`);
-  }
+  try {
+    const book = await lookupAudnexusBook(asin, { fetchFn });
+    if (!book) {
+      return plainResult(`Audnexus lookup failed for ASIN: ${asin}`);
+    }
 
-  const parts = [`Audnexus metadata for ${asin}:`];
-  parts.push(`  Title: "${book.title}"`);
-  parts.push(`  Author: ${book.authors[0]?.name || "unknown"}`);
-  if (book.narrators[0]?.name) parts.push(`  Narrator: ${book.narrators[0].name}`);
-  if (book.image) parts.push(`  Cover URL: ${book.image}`);
-  if (book.runtimeLengthMin) parts.push(`  Duration: ${book.runtimeLengthMin} min`);
-  return plainResult(parts.join("\n"));
+    const parts = [`Audnexus metadata for ${asin}:`];
+    parts.push(`  Title: "${book.title}"`);
+    parts.push(`  Author: ${book.authors[0]?.name || "unknown"}`);
+    if (book.narrators[0]?.name) parts.push(`  Narrator: ${book.narrators[0].name}`);
+    if (book.image) parts.push(`  Cover URL: ${book.image}`);
+    if (book.runtimeLengthMin) parts.push(`  Duration: ${book.runtimeLengthMin} min`);
+    return plainResult(parts.join("\n"));
+  } finally {
+    await delay(600);
+  }
 }
 
 async function executeFindLocalCover(
