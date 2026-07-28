@@ -98,3 +98,16 @@ export function copyFilesToOutput(files: AudioFile[], outputDir: string): AudioF
     return { ...file, path: outputPath };
   });
 }
+
+export function normalizeText(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function fuzzyMatch(a: string, b: string): boolean {
+  const normA = normalizeText(a);
+  const normB = normalizeText(b);
+  if (normA === normB) return true;
+  if (normA.includes(normB) || normB.includes(normA)) return true;
+  if (normA.replace(/[^a-z0-9]/g, "") === normB.replace(/[^a-z0-9]/g, "")) return true;
+  return false;
+}

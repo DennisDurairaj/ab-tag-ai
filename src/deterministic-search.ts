@@ -4,6 +4,7 @@ import { lookupAudnexusBook } from "./providers/audnexus.js";
 import { fetchNextCandidate } from "./providers/metadata-resolver.js";
 import type { OrchestratorConfig, ToolContext, OrchestrationResult } from "./orchestrator.js";
 import { writeOutputForBook } from "./orchestrator.js";
+import { fuzzyMatch } from "./utils.js";
 
 export interface DeterministicSearchConfig {
   cache: AsinCache;
@@ -22,19 +23,6 @@ export type DeterministicSearchResult =
   | { status: "written"; outputDir: string; filesWritten: number; fallbackReason?: string }
   | { status: "skipped"; outputDir: string; reason: string }
   | { status: "fallthrough" };
-
-function normalizeText(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function fuzzyMatch(a: string, b: string): boolean {
-  const normA = normalizeText(a);
-  const normB = normalizeText(b);
-  if (normA === normB) return true;
-  if (normA.includes(normB) || normB.includes(normA)) return true;
-  if (normA.replace(/[^a-z0-9]/g, "") === normB.replace(/[^a-z0-9]/g, "")) return true;
-  return false;
-}
 
 async function tryAudnexusEnrichment(
   asin: string,

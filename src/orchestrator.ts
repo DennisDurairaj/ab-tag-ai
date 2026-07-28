@@ -6,7 +6,7 @@ import { validateAsin } from "./providers/asin.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { lookupAudnexusBook } from "./providers/audnexus.js";
 import { findLocalCoverArt, downloadAndResizeCover } from "./providers/cover-art.js";
-import { buildBookFolderPath, writeCoverArt, copyFilesToOutput, delay } from "./utils.js";
+import { buildBookFolderPath, writeCoverArt, copyFilesToOutput, delay, fuzzyMatch, normalizeText } from "./utils.js";
 import { tagMultiFileSet, assignTrackNumbers } from "./taggers/index.js";
 import type { AsinCache } from "./providers/asin.js";
 import { flagForReview } from "./agent.js";
@@ -448,19 +448,6 @@ export async function writeOutputForBook(
     coverId: metadata.coverId,
   }, ctx);
   return { content: result.content, terminal: result.terminal as OrchestrationResult };
-}
-
-function normalizeText(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function fuzzyMatch(a: string, b: string): boolean {
-  const normA = normalizeText(a);
-  const normB = normalizeText(b);
-  if (normA === normB) return true;
-  if (normA.includes(normB) || normB.includes(normA)) return true;
-  if (normA.replace(/[^a-z0-9]/g, "") === normB.replace(/[^a-z0-9]/g, "")) return true;
-  return false;
 }
 
 function isRetryableError(error: unknown): boolean {

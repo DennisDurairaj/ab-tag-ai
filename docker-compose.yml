@@ -2,15 +2,15 @@ services:
   organize:
     image: ghcr.io/dennisdurairaj/ab-tag-ai:latest
     volumes:
-      - ${INPUT_DIR:-./input}:/input:ro
-      - ${OUTPUT_DIR:-./output}:/output
-      - ${CONFIG_FILE:-./config.yaml}:/app/config.yaml:ro
+      - /mnt/disk1/tmp/books:/input:ro
+      - /mnt/disk1/tmp/output:/output
+      - /mnt/disk1/tmp/config.yaml:/app/config.yaml:ro
 
-  dry-run:
-    image: ghcr.io/dennisdurairaj/ab-tag-ai:latest
-    profiles: [check]
+  audiobookshelf-test:
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    ports:
+      - "13379:80"
     volumes:
-      - ${INPUT_DIR:-./input}:/input:ro
-      - ${OUTPUT_DIR:-./output}:/output
-      - ${CONFIG_FILE:-./config.yaml}:/app/config.yaml:ro
-    command: --config /app/config.yaml --dry-run
+      - ./abs-test/config:/config
+      - ./abs-test/metadata:/metadata
+      - /mnt/disk1/tmp/output:/output
