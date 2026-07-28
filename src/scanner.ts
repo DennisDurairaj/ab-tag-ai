@@ -6,6 +6,7 @@ import id3 from "node-id3";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AudioFile, AudioMetadata, MultiFileSet } from "./types.js";
+import { progress, error as logError, success } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -116,10 +117,10 @@ async function scanFiles(
 }
 
 export async function scanForAudioFiles(inputDir: string, concurrency = 8): Promise<AudioFile[]> {
-  console.log(`Scanning ${inputDir} for audio files...`);
+  progress(`Scanning ${inputDir} for audio files...`);
 
   if (!fs.existsSync(inputDir)) {
-    console.log(`Directory does not exist: ${inputDir}`);
+    logError(`Directory does not exist: ${inputDir}`);
     return [];
   }
 
@@ -133,7 +134,7 @@ export async function scanForAudioFiles(inputDir: string, concurrency = 8): Prom
 
   const files = [...mp3Results, ...m4bResults];
 
-  console.log(`Found ${mp3Files.length} MP3 file(s) and ${m4bFiles.length} M4B file(s).`);
+  success(`Found ${mp3Files.length} MP3 file(s) and ${m4bFiles.length} M4B file(s).`);
 
   return files;
 }

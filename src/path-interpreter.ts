@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import type { BookSet } from "./types.js";
+import { tagged, dryRun as dryRunMsg, detail } from "./logger.js";
 
 const SYSTEM_PROMPT = `You are a path interpreter for an audiobook organizer. Your job is to determine the correct author and title from a file path structure.
 
@@ -98,7 +99,7 @@ function writeFlagForReview(
   if (dryRun) {
     const safeName = title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
     const reviewPath = path.join(outputDir, "review", `${safeName}.json`);
-    console.log(`  [DRY-RUN] Would write review to ${reviewPath}: ${reason}`);
+    dryRunMsg(`  [DRY-RUN] Would write review to ${reviewPath}: ${reason}`);
     return;
   }
 
@@ -140,25 +141,30 @@ export function createPathInterpreter(config: PathInterpreterConfig) {
     let lastContent = "";
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      console.error(`  [Path Interpreter] Round ${iteration + 1}/${MAX_ITERATIONS}`);
+      tagged("Path Interpreter", `Round ${iteration + 1}/${MAX_ITERATIONS}`, "cyan");
 
       let response: Response | undefined;
       let retryDelay = 1000;
       for (let retry = 0; retry < 3; retry++) {
         if (retry > 0) {
-          console.error(`  [Retry ${retry}/3 after ${retryDelay}ms]`);
+          tagged("Req", `Retry ${retry}/3 after ${retryDelay}ms`, "yellow");
           await new Promise((r) => setTimeout(r, retryDelay));
           retryDelay *= 2;
         }
-        response = await fetchFn(`${apiBaseUrl}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({ model, messages, tools: TOOLS, tool_choice: "auto" }),
-        });
-        if (response.status !== 429) break;
+        try {
+          response = await fetchFn(`${apiBaseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({ model, messages, tools: TOOLS, tool_choice: "auto" }),
+          });
+          if (response.status !== 429) break;
+        } catch (e) {
+          tagged("Req", `Fetch failed: ${(e as Error)?.message?.slice(0, 80) || e}`, "red");
+          response = undefined;
+        }
       }
 
       if (!response || !response.ok) {
@@ -185,7 +191,7 @@ export function createPathInterpreter(config: PathInterpreterConfig) {
 
       if (message.content) {
         lastContent = message.content;
-        console.error(`  [Path Interpreter] ${message.content.slice(0, 200)}`);
+        detail(`[Path Interpreter] ${message.content.slice(0, 200)}`);
       }
 
       messages.push(message);
@@ -197,7 +203,7 @@ export function createPathInterpreter(config: PathInterpreterConfig) {
 
       for (const toolCall of toolCalls) {
         const { name, arguments: argsStr } = toolCall.function;
-        console.error(`  [Tool call] ${name}(${argsStr.slice(0, 200)})`);
+        detail(`[Tool call] ${name}(${argsStr.slice(0, 200)})`);
 
         let args: Record<string, unknown>;
         try {

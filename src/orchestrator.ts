@@ -8,6 +8,7 @@ import { tagMultiFileSet, assignTrackNumbers } from "./taggers/index.js";
 import type { AsinCache } from "./providers/asin.js";
 import { createAbsClient, AbsServerError, AbsAuthError, AbsNotFoundError, AbsRateLimitError } from "./providers/abs-client.js";
 import type { AbsClient, AbsSearchResult } from "./providers/abs-client.js";
+import { tagged } from "./logger.js";
 
 export interface OrchestratorConfig {
   model: string;
@@ -38,11 +39,6 @@ export interface ToolContext {
   localCover: Buffer | null;
 }
 
-function plainResult(text: string): string {
-  return text;
-}
-
-
 async function executeWriteOutput(
   args: Record<string, unknown>,
   ctx: ToolContext,
@@ -63,7 +59,7 @@ async function executeWriteOutput(
 
     if (ctx.config.dryRun) {
       return {
-        content: plainResult(`[DRY-RUN] Would write ${ctx.bookSet.files.length} files to ${bookDir}`),
+        content: `[DRY-RUN] Would write ${ctx.bookSet.files.length} files to ${bookDir}`,
         terminal: { status: "written", outputDir: bookDir, filesWritten: ctx.bookSet.files.length },
       };
     }
@@ -90,7 +86,7 @@ async function executeWriteOutput(
 
     const coverMsg = coverArt ? "with cover art" : "without cover art";
     return {
-      content: plainResult(`Written ${copiedFiles.length} file(s) to ${bookDir} ${coverMsg}`),
+      content: `Written ${copiedFiles.length} file(s) to ${bookDir} ${coverMsg}`,
       terminal: { status: "written", outputDir: bookDir, filesWritten: copiedFiles.length },
     };
   }
@@ -104,7 +100,7 @@ async function executeWriteOutput(
 
   if (ctx.config.dryRun) {
     return {
-      content: plainResult(`[DRY-RUN] Would upload "${title}" by ${author} (${ctx.bookSet.files.length} files) to Audiobookshelf library ${ctx.config.absLibraryId}`),
+      content: `[DRY-RUN] Would upload "${title}" by ${author} (${ctx.bookSet.files.length} files) to Audiobookshelf library ${ctx.config.absLibraryId}`,
       terminal: { status: "written", outputDir: `abs://${ctx.config.absUrl}/library/${ctx.config.absLibraryId}`, filesWritten: ctx.bookSet.files.length },
     };
   }
@@ -162,7 +158,7 @@ function isRetryableError(error: unknown): boolean {
   if (error instanceof AbsNotFoundError) return false;
   if (error instanceof TypeError) return true;
   const code = (error as NodeJS.ErrnoException).code;
-  if (code === "ETIMEDOUT" || code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ENOTFOUND") return true;
+  if (code === "ETIMEDOUT" || code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ENOTFOUND" || code === "EAI_AGAIN") return true;
   return false;
 }
 
@@ -193,11 +189,11 @@ async function withRetry<T>(
 
       if (attempt === delays.length) break;
       if (!isRetryableError(error)) {
-        console.error(`  [ABS] ${name} failed: ${errorLabel(error)} — not retryable, falling back`);
+        tagged("ABS", `${name} failed: ${errorLabel(error)} — not retryable, falling back`, "red");
         throw error;
       }
 
-      console.error(`  [ABS] ${name} retry ${attempt + 1}/3: ${errorLabel(error)}, retrying in ${delays[attempt] / 1000}s...`);
+      tagged("ABS", `${name} retry ${attempt + 1}/3: ${errorLabel(error)}, retrying in ${delays[attempt] / 1000}s...`, "yellow");
       await new Promise((r) => setTimeout(r, delays[attempt]));
     }
   }
@@ -217,7 +213,7 @@ function executeLocalFallback(
 
   if (ctx.config.dryRun) {
     return {
-      content: plainResult(`[DRY-RUN] Would fall back to local: copy ${ctx.bookSet.files.length} files to ${bookDir} (${reason})`),
+      content: `[DRY-RUN] Would fall back to local: copy ${ctx.bookSet.files.length} files to ${bookDir} (${reason})`,
       terminal: { status: "written", outputDir: bookDir, filesWritten: ctx.bookSet.files.length, fallbackReason: reason },
     };
   }
@@ -227,7 +223,7 @@ function executeLocalFallback(
 
   const coverMsg = coverArt ? "with cover art" : "without cover art";
   return {
-    content: plainResult(`Fell back to local output: ${ctx.bookSet.files.length} file(s) to ${bookDir} ${coverMsg}`),
+    content: `Fell back to local output: ${ctx.bookSet.files.length} file(s) to ${bookDir} ${coverMsg}`,
     terminal: { status: "written", outputDir: bookDir, filesWritten: ctx.bookSet.files.length, fallbackReason: reason },
   };
 }
@@ -261,13 +257,13 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
   try {
     searchResult = await withRetry("search ASIN", () => absClient.searchLibrary({ libraryId, query: asin, fetchFn }));
   } catch (err) {
-    console.error(`  [ABS] Duplicate check failed: ${errorLabel(err)} — falling back to local`);
+    tagged("ABS", `Duplicate check failed: ${errorLabel(err)} — falling back to local`, "red");
     return fallback(`Search error (${errorLabel(err)})`);
   }
 
   if (searchResult.book.length > 0) {
     return {
-      content: plainResult(`Skipped: ASIN ${asin} already exists in library "${title}"`),
+      content: `Skipped: ASIN ${asin} already exists in library "${title}"`,
       terminal: { status: "skipped", outputDir: `abs:${libraryId}`, reason: `Duplicate ASIN ${asin}: "${title}"` },
     };
   }
@@ -275,7 +271,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
   try {
     searchResult = await withRetry("search title", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
   } catch (err) {
-    console.error(`  [ABS] Duplicate check failed: ${errorLabel(err)} — falling back to local`);
+    tagged("ABS", `Duplicate check failed: ${errorLabel(err)} — falling back to local`, "red");
     return fallback(`Search error (${errorLabel(err)})`);
   }
 
@@ -287,7 +283,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
   });
   if (duplicate) {
     return {
-      content: plainResult(`Skipped: "${title}" by ${author} already exists in library`),
+      content: `Skipped: "${title}" by ${author} already exists in library`,
       terminal: { status: "skipped", outputDir: `abs:${libraryId}`, reason: `Duplicate title+author: "${title}" by ${author}` },
     };
   }
@@ -306,7 +302,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
       folderId = libInfo.folders[0].id;
     }
   } catch (err) {
-    console.error(`  [ABS] Failed to get library info: ${errorLabel(err)} — falling back to local`);
+    tagged("ABS", `Failed to get library info: ${errorLabel(err)} — falling back to local`, "red");
     return fallback(`Library lookup failed (${errorLabel(err)})`);
   }
 
@@ -322,7 +318,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
       fetchFn,
     }));
   } catch (err) {
-    console.error(`  [ABS] Upload failed: ${errorLabel(err)} — falling back to local`);
+    tagged("ABS", `Upload failed: ${errorLabel(err)} — falling back to local`, "red");
     return fallback(`Upload failed (${errorLabel(err)})`);
   }
 
@@ -347,7 +343,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     try {
       const pollResult = await withRetry("poll", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
       if (pollResult.book.length === 0) {
-        console.error(`  [ABS] Poll: no books found for "${title}" (delay ${delay}ms)`);
+        tagged("ABS", `Poll: no books found for "${title}" (delay ${delay}ms)`, "yellow");
       }
       const match = pollResult.book.find((item) => {
         const meta = item.libraryItem?.media?.metadata || {};
@@ -365,7 +361,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
   }
 
   if (!itemId) {
-    console.error(`  [ABS] Could not discover item ID after upload — falling back to local`);
+    tagged("ABS", "Could not discover item ID after upload — falling back to local", "red");
     return fallback("Item ID not discovered after upload");
   }
 
@@ -379,7 +375,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
       fetchFn,
     }));
   } catch {
-    console.error(`  [ABS] Failed to PATCH metadata for item ${itemId}`);
+    tagged("ABS", `Failed to PATCH metadata for item ${itemId}`, "red");
   }
 
   let providerMatched = false;
@@ -408,9 +404,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
         const titleOk = fuzzyMatch(matchedTitle, title);
 
         if (!authorOk || !titleOk) {
-          console.error(
-            `  [ABS] Match returned wrong metadata: author="${matchedAuthor}" title="${matchedTitle}" — reverting`,
-          );
+          tagged("ABS", `Match returned wrong metadata: author="${matchedAuthor}" title="${matchedTitle}" — reverting`, "magenta");
           await withRetry("revert match", () =>
             absClient.updateMedia({
               itemId,
@@ -421,11 +415,11 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
           providerMatched = false;
         }
       } catch {
-        console.error(`  [ABS] Failed to verify/revert match result for item ${itemId}`);
+        tagged("ABS", `Failed to verify/revert match result for item ${itemId}`, "red");
       }
     }
   } catch {
-    console.error(`  [ABS] Provider match failed for item ${itemId}`);
+    tagged("ABS", `Provider match failed for item ${itemId}`, "red");
   }
 
   if (coverArt) {
@@ -434,7 +428,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
       fs.writeFileSync(tmpCoverPath, coverArt);
       await withRetry("cover upload", () => absClient.uploadCover({ itemId, coverPath: tmpCoverPath, fetchFn }));
     } catch {
-      console.error(`  [ABS] Cover upload failed for item ${itemId}`);
+      tagged("ABS", `Cover upload failed for item ${itemId}`, "red");
     } finally {
       try { fs.unlinkSync(tmpCoverPath); } catch { /* ignore */ }
     }
@@ -444,9 +438,9 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
   try {
     verifyResult = await withRetry("verify", () => absClient.searchLibrary({ libraryId, query: asin, fetchFn }));
   } catch {
-    console.error(`  [ABS] Verification search failed — flagging for review`);
+    tagged("ABS", "Verification search failed — flagging for review", "magenta");
     return {
-      content: plainResult(`Could not verify "${title}" after upload`),
+      content: `Could not verify "${title}" after upload`,
       terminal: { status: "flagged", reason: `ABS verify search failed for "${title}" (ASIN: ${asin})` },
     };
   }
@@ -465,7 +459,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
       if (!authorOk) detailParts.push(`author mismatch: expected "${author}", got "${absAuthor}"`);
       if (!titleOk) detailParts.push(`title mismatch: expected "${title}", got "${absTitle}"`);
       return {
-        content: plainResult(`Verify failed: ${detailParts.join("; ")}`),
+        content: `Verify failed: ${detailParts.join("; ")}`,
         terminal: { status: "flagged", reason: `ABS verify mismatch for "${title}" (ASIN: ${asin}): ${detailParts.join("; ")}` },
       };
     }
@@ -473,7 +467,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
 
   const matchNote = providerMatched ? " (matched to provider)" : "";
   return {
-    content: plainResult(`Uploaded to Audiobookshelf: "${title}" by ${author} (${ctx.bookSet.files.length} files)${matchNote}`),
+    content: `Uploaded to Audiobookshelf: "${title}" by ${author} (${ctx.bookSet.files.length} files)${matchNote}`,
     terminal: { status: "written", outputDir: `abs://${ctx.config.absUrl}/library/${libraryId}`, filesWritten: ctx.bookSet.files.length },
   };
 }

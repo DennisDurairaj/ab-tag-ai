@@ -4,6 +4,7 @@ import type { ToolContext, OrchestrationResult } from "./orchestrator.js";
 import { writeOutputForBook } from "./orchestrator.js";
 import type { AsinCache } from "./providers/asin.js";
 import { flagForReview } from "./agent.js";
+import { tagged, detail } from "./logger.js";
 
 const SYSTEM_PROMPT = `You are a metadata verifier for an audiobook organizer. The title and author have been inferred from the folder path, and provider searches (Open Library, Hardcover, Audnexus) have returned results that did not pass automated fuzzy matching. Your job is to review the provider results against the inferred identity and decide whether the match is close enough, or whether to flag for manual review.
 
@@ -228,25 +229,30 @@ export function createVerifier(config: VerifierConfig) {
     let lastContent = "";
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      console.error(`  [Verifier] Round ${iteration + 1}/${MAX_ITERATIONS}`);
+      tagged("Verifier", `Round ${iteration + 1}/${MAX_ITERATIONS}`, "cyan");
 
       let response: Response | undefined;
       let retryDelay = 1000;
       for (let retry = 0; retry < 3; retry++) {
         if (retry > 0) {
-          console.error(`  [Retry ${retry}/3 after ${retryDelay}ms]`);
+          tagged("Req", `Retry ${retry}/3 after ${retryDelay}ms`, "yellow");
           await new Promise((r) => setTimeout(r, retryDelay));
           retryDelay *= 2;
         }
-        response = await fetchFn(`${apiBaseUrl}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({ model, messages, tools: TOOLS, tool_choice: "auto" }),
-        });
-        if (response.status !== 429) break;
+        try {
+          response = await fetchFn(`${apiBaseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({ model, messages, tools: TOOLS, tool_choice: "auto" }),
+          });
+          if (response.status !== 429) break;
+        } catch (e) {
+          tagged("Req", `Fetch failed: ${(e as Error)?.message?.slice(0, 80) || e}`, "red");
+          response = undefined;
+        }
       }
 
       if (!response || !response.ok) {
@@ -275,7 +281,7 @@ export function createVerifier(config: VerifierConfig) {
 
       if (message.content) {
         lastContent = message.content;
-        console.error(`  [Verifier] ${message.content.slice(0, 200)}`);
+        detail(`[Verifier] ${message.content.slice(0, 200)}`);
       }
 
       messages.push(message);
@@ -290,7 +296,7 @@ export function createVerifier(config: VerifierConfig) {
 
       for (const toolCall of toolCalls) {
         const { name, arguments: argsStr } = toolCall.function;
-        console.error(`  [Tool call] ${name}(${argsStr.slice(0, 200)})`);
+        detail(`[Tool call] ${name}(${argsStr.slice(0, 200)})`);
 
         let args: Record<string, unknown>;
         try {
@@ -310,7 +316,7 @@ export function createVerifier(config: VerifierConfig) {
           }
 
           const { content, terminal } = await executeWriteOutputTool(args, context);
-          console.error(`  [Tool result] ${content.slice(0, 300)}`);
+          detail(`[Tool result] ${content.slice(0, 300)}`);
           messages.push({ role: "tool", tool_call_id: toolCall.id, content });
 
           if (terminal) {

@@ -6,6 +6,7 @@ import { searchHardcoverAsin } from "./providers/hardcover.js";
 import type { OrchestratorConfig, ToolContext, OrchestrationResult } from "./orchestrator.js";
 import { writeOutputForBook } from "./orchestrator.js";
 import { fuzzyMatch, delay } from "./utils.js";
+import { tagged } from "./logger.js";
 
 export interface DeterministicSearchConfig {
   cache: AsinCache;
@@ -157,7 +158,7 @@ export async function deterministicSearch(
 
   const cachedAsin = config.cache.get(key);
   if (cachedAsin) {
-    console.error(`  [Deterministic] Cache hit: ASIN ${cachedAsin} for "${resolvedTitle}"`);
+    tagged("Deterministic", `Cache hit: ASIN ${cachedAsin} for "${resolvedTitle}"`, "green");
 
     const enriched = await tryAudnexusEnrichment(cachedAsin, resolvedAuthor, fetchFn);
     const metadata: ResolvedMetadata = enriched ?? {
@@ -174,7 +175,7 @@ export async function deterministicSearch(
     });
   }
 
-  console.error(`  [Deterministic] Cache miss — searching OL + HC in parallel for "${resolvedTitle}" by ${resolvedAuthor}`);
+  tagged("Deterministic", `Cache miss — searching OL + HC in parallel for "${resolvedTitle}" by ${resolvedAuthor}`, "cyan");
 
   const metadata = await parallelSearchAndMerge(
     { title: resolvedTitle, author: resolvedAuthor },
@@ -184,7 +185,7 @@ export async function deterministicSearch(
   );
 
   if (!metadata) {
-    console.error(`  [Deterministic] No ASIN from providers — falling through to verifier`);
+    tagged("Deterministic", "No ASIN from providers — falling through to verifier", "yellow");
     return { status: "fallthrough", metadata: null, title: resolvedTitle, author: resolvedAuthor, reason: "No ASIN found from any provider" };
   }
 
@@ -196,11 +197,11 @@ export async function deterministicSearch(
     if (!titleMatch) parts.push(`title mismatch: "${resolvedTitle}" vs "${metadata.title}"`);
     if (!authorMatch) parts.push(`author mismatch: "${resolvedAuthor}" vs "${metadata.author}"`);
     const reason = `Fuzzy match failed (${parts.join("; ")})`;
-    console.error(`  [Deterministic] ${reason} — falling through to verifier`);
+    tagged("Deterministic", `${reason} — falling through to verifier`, "yellow");
     return { status: "fallthrough", metadata, title: resolvedTitle, author: resolvedAuthor, reason };
   }
 
-  console.error(`  [Deterministic] Match found — writing output directly`);
+  tagged("Deterministic", "Match found — writing output directly", "green");
 
   config.cache.set(key, metadata.asin);
 

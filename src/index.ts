@@ -2,6 +2,7 @@ import path from "node:path";
 import { Command } from "commander";
 import { loadConfig, mergeCliOverrides, validateConfig } from "./config.js";
 import { processLibrary } from "./agent.js";
+import { setLogLevel, error as logErr, dryRun } from "./logger.js";
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -46,23 +47,25 @@ async function main(): Promise<void> {
 
   config = mergeCliOverrides(config, cliOverrides as Partial<typeof config>);
 
+  setLogLevel(config.log_level);
+
   const errors = validateConfig(config);
   if (errors.length > 0) {
-    console.error("Configuration errors:");
-    for (const error of errors) {
-      console.error(`  - ${error}`);
+    logErr("Configuration errors:");
+    for (const e of errors) {
+      logErr(`  - ${e}`);
     }
     program.help({ error: true });
   }
 
   if (config.dry_run) {
-    console.log("DRY RUN mode — no files will be modified.");
+    dryRun("DRY RUN mode — no files will be modified.");
   }
 
   await processLibrary(config);
 }
 
-main().catch((error: unknown) => {
-  console.error("Fatal error:", error instanceof Error ? error.message : String(error));
+main().catch((err: unknown) => {
+  logErr(`Fatal error: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });

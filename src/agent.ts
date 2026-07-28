@@ -10,6 +10,7 @@ import { createPathInterpreter } from "./path-interpreter.js";
 import { deterministicSearch } from "./deterministic-search.js";
 import { createVerifier } from "./verifier.js";
 import { findLocalCoverArt } from "./providers/cover-art.js";
+import { header, success, skipped, flagged, progress, dryRun, raw, warn, error as logError } from "./logger.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
@@ -63,10 +64,10 @@ export async function processLibrary(config: Config): Promise<void> {
   asinCache.save();
 
   if (fallbacks.length > 0) {
-    console.log("\n=== ABS FALLBACK SUMMARY ===");
-    console.log(`${fallbacks.length} book(s) fell back to local output:\n`);
+    header("\n=== ABS FALLBACK SUMMARY ===");
+    warn(`${fallbacks.length} book(s) fell back to local output:\n`);
     for (const fb of fallbacks) {
-      console.log(`  - "${fb.title}": ${fb.reason}`);
+      raw(`  - "${fb.title}": ${fb.reason}`);
     }
   }
 }
@@ -87,7 +88,10 @@ async function processWithConcurrency<T>(
         const item = queue[index++];
         const delay = started++ * 500;
         active++;
-        const run = () => fn(item).finally(() => {
+        const run = () => fn(item).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          logError(msg);
+        }).finally(() => {
           active--;
           next();
         });
@@ -138,17 +142,17 @@ function printSummary(bookSets: BookSet[]): void {
     set.files.filter((f) => Object.keys(f.existingMetadata).length === 0)
   );
 
-  console.log(`Found ${totalBooks} book(s) across ${totalFiles} audio file(s).`);
+  success(`Found ${totalBooks} book(s) across ${totalFiles} audio file(s).`);
 
   for (const set of bookSets) {
     const title = set.books[0]?.title || "Unknown";
-    console.log(`  - "${title}": ${set.files.length} file(s)`);
+    raw(`  - "${title}": ${set.files.length} file(s)`);
   }
 
   if (filesMissingMetadata.length > 0) {
-    console.log(`Files missing metadata (${filesMissingMetadata.length}):`);
+    warn(`Files missing metadata (${filesMissingMetadata.length}):`);
     for (const file of filesMissingMetadata) {
-      console.log(`  - ${file.path}`);
+      raw(`  - ${file.path}`);
     }
   }
 }
@@ -164,7 +168,7 @@ async function processBook(
   const book = bookSet.books[0];
   if (!book) return;
 
-  console.log(`Processing: ${book.title || "Unknown"}`);
+  progress(`Processing: ${book.title || "Unknown"}`);
 
   const firstFile = bookSet.files[0];
   const sourceDir = firstFile ? path.dirname(firstFile.path) : "";
@@ -172,7 +176,7 @@ async function processBook(
 
   const pathResult = await interpretPath(bookSet);
   if (pathResult.status === "flagged") {
-    console.log(`  Flagged: ${pathResult.reason}`);
+    flagged(`  Flagged: ${pathResult.reason}`);
     return;
   }
 
@@ -193,7 +197,7 @@ async function processBook(
 
   if (searchResult.status === "written") {
     const fallbackNote = searchResult.fallbackReason ? ` (fell back: ${searchResult.fallbackReason})` : "";
-    console.log(`  Written: ${searchResult.outputDir} (${searchResult.filesWritten} files)${fallbackNote}`);
+    success(`  Written: ${searchResult.outputDir} (${searchResult.filesWritten} files)${fallbackNote}`);
     if (searchResult.fallbackReason) {
       fallbacks.push({ title: book.title, reason: searchResult.fallbackReason });
     }
@@ -201,7 +205,7 @@ async function processBook(
   }
 
   if (searchResult.status === "skipped") {
-    console.log(`  Skipped: ${searchResult.reason}`);
+    skipped(`  Skipped: ${searchResult.reason}`);
     return;
   }
 
@@ -216,14 +220,14 @@ async function processBook(
 
   if (result.status === "written") {
     const fallbackNote = result.fallbackReason ? ` (fell back: ${result.fallbackReason})` : "";
-    console.log(`  Written: ${result.outputDir} (${result.filesWritten} files)${fallbackNote}`);
+    success(`  Written: ${result.outputDir} (${result.filesWritten} files)${fallbackNote}`);
     if (result.fallbackReason) {
       fallbacks.push({ title: book.title, reason: result.fallbackReason });
     }
   } else if (result.status === "skipped") {
-    console.log(`  Skipped: ${result.reason}`);
+    skipped(`  Skipped: ${result.reason}`);
   } else {
-    console.log(`  Flagged: ${result.reason}`);
+    flagged(`  Flagged: ${result.reason}`);
   }
 }
 
@@ -231,7 +235,7 @@ export function flagForReview(book: Book, filePaths: string[], config: Config, r
   if (config.dry_run) {
     const safeName = book.title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
     const reviewPath = path.join(config.output, "review", `${safeName}.json`);
-    console.log(`  [DRY-RUN] Would write review to ${reviewPath}: ${reason}`);
+    dryRun(`  [DRY-RUN] Would write review to ${reviewPath}: ${reason}`);
     return;
   }
 
