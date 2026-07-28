@@ -6,6 +6,7 @@ import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
 import { createAsinCache } from "./providers/asin.js";
 import { inferBook } from "./inference.js";
 import { createOrchestrator } from "./orchestrator.js";
+import { createPathInterpreter } from "./path-interpreter.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
@@ -29,6 +30,13 @@ export async function processLibrary(config: Config): Promise<void> {
   printSummary(bookSets);
 
   const asinCache = createAsinCache(CACHE_DIR);
+  const interpretPath = createPathInterpreter({
+    model: config.llm_model,
+    apiKey: config.llm_api_key || "",
+    apiBaseUrl: config.llm_api_base_url || undefined,
+    dryRun: config.dry_run,
+    outputDir: config.output,
+  });
   const orchestrateBook = createOrchestrator({
     model: config.llm_model,
     apiKey: config.llm_api_key || undefined,
@@ -47,7 +55,7 @@ export async function processLibrary(config: Config): Promise<void> {
 
   const concurrency = Math.max(1, config.concurrency);
   await processWithConcurrency(bookSets, concurrency, (bookSet) =>
-    processBook(bookSet, config, orchestrateBook, fallbacks)
+    processBook(bookSet, config, orchestrateBook, fallbacks, interpretPath)
   );
 
   asinCache.save();
@@ -148,11 +156,21 @@ async function processBook(
   _config: Config,
   orchestrateBook: ReturnType<typeof createOrchestrator>,
   fallbacks: Array<{ title: string; reason: string }>,
+  interpretPath: ReturnType<typeof createPathInterpreter>,
 ): Promise<void> {
   const book = bookSet.books[0];
   if (!book) return;
 
   console.log(`Processing: ${book.title || "Unknown"}`);
+
+  const pathResult = await interpretPath(bookSet);
+  if (pathResult.status === "flagged") {
+    console.log(`  Flagged: ${pathResult.reason}`);
+    return;
+  }
+
+  book.title = pathResult.title;
+  book.author = pathResult.author;
 
   const result = await orchestrateBook(bookSet);
 

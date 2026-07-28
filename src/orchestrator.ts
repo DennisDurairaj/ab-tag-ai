@@ -51,14 +51,13 @@ interface ToolCallRecord {
 
 const MAX_ITERATIONS = 30;
 
-const SYSTEM_PROMPT = `You are an audiobook metadata organizer. Given a book folder, determine the correct author and title from the path structure (Author/Series/Book/ or Author/Book/). The first path segment is always the author. Search providers and either write tagged output or flag for review.
+const SYSTEM_PROMPT = `You are an audiobook metadata organizer. The book's title and author have already been determined from the folder path. Your job is to search providers (Open Library, Hardcover, Audnexus) and either write tagged output or flag for review.
 
 Rules:
-- The folder path is ground truth for author and title. Override any conflicting data.
-- ID3 tags are unreliable — artists are often narrators, titles may be filenames. Use them only as a last resort and verify before trusting.
+- The title and author provided in the initial message are trusted — do not change them.
 - After finding an ASIN, try fetch_audnexus to enrich with narrator and cover art, but it is OPTIONAL. If Audnexus fails, proceed with write_output using the ASIN from search providers.
-- Call write_output when you have a matching title and author with a valid ASIN, even without narrator/cover.
-- Call flag_for_review only when you cannot find any ASIN from any provider, or when the provider's title/author clearly do not match the folder path.
+- Call write_output when you have a valid ASIN matching the title/author, even without narrator/cover.
+- Call flag_for_review only when you cannot find any ASIN from any provider, or when the provider's title/author clearly do not match the expected values.
 - Decide quickly — 2-3 search attempts maximum. Do not retry with the same query.
 - Do not fabricate metadata. Everything must come from a tool result.`;
 
@@ -154,6 +153,7 @@ const TOOLS = [
 
 function buildInitialMessage(bookSet: BookSet): string {
   const firstFile = bookSet.files[0];
+  const book = bookSet.books[0];
   const sourceDir = firstFile ? path.dirname(firstFile.path) : "unknown";
   const dirParts = sourceDir.split(path.sep);
   const segments = dirParts.slice(-4);
@@ -171,12 +171,14 @@ function buildInitialMessage(bookSet: BookSet): string {
 
   return `Book source directory: ${sourceDir}
 Path structure: ${segments.join(" > ")}
+Title: "${book?.title || "unknown"}"
+Author: "${book?.author || "unknown"}"
 File count: ${bookSet.files.length}
 
 Files:
 ${fileList}
 
-Determine the correct author and title from the folder path structure. Then search providers and either write the output or flag for review.`;
+Search providers with the title and author above. Either write the tagged output or flag for review.`;
 }
 
 function cacheKey(title: string, author: string): string {
