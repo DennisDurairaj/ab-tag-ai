@@ -342,8 +342,6 @@ async function executeWriteOutput(
   const coverArt = ctx.localCover
     ?? await downloadAndResizeCover({ coverUrl, coverId: coverId && coverId > 0 ? coverId : undefined });
 
-  writeCoverArt(coverArt, bookDir);
-
   const resolved: ResolvedMetadata = {
     title,
     author,
@@ -355,8 +353,11 @@ async function executeWriteOutput(
     coverId,
   };
 
+  tagMultiFileSet(ctx.bookSet.files, resolved, coverArt ?? undefined);
+
   const copiedFiles = copyFilesToOutput(ctx.bookSet.files, bookDir);
-  tagMultiFileSet(copiedFiles, resolved, coverArt ?? undefined);
+
+  writeCoverArt(coverArt, bookDir);
 
   const coverMsg = coverArt ? "with cover art" : "without cover art";
   return {
