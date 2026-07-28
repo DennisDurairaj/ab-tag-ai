@@ -9,19 +9,19 @@ import { createOrchestrator } from "./orchestrator.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
-function scanFilteredFiles(inputDir: string, include: string[]): AudioFile[] {
+async function scanFilteredFiles(inputDir: string, include: string[]): Promise<AudioFile[]> {
   const allFiles: AudioFile[] = [];
   for (const pattern of include) {
     const dir = path.join(inputDir, pattern);
-    allFiles.push(...scanForAudioFiles(dir));
+    allFiles.push(...await scanForAudioFiles(dir));
   }
   return allFiles;
 }
 
 export async function processLibrary(config: Config): Promise<void> {
   const files = config.include.length > 0
-    ? scanFilteredFiles(config.input, config.include)
-    : scanForAudioFiles(config.input);
+    ? await scanFilteredFiles(config.input, config.include)
+    : await scanForAudioFiles(config.input);
   const bookSets = groupIntoBooks(files, config.input);
 
   printSummary(bookSets);

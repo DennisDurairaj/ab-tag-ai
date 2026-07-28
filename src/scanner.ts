@@ -3,8 +3,11 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { globSync } from "glob";
 import id3 from "node-id3";
-import { execSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { AudioFile, AudioMetadata, MultiFileSet } from "./types.js";
+
+const execFileAsync = promisify(execFile);
 
 const _require = createRequire(import.meta.url);
 
@@ -52,13 +55,13 @@ function readMp3Metadata(filePath: string): AudioMetadata {
   }
 }
 
-function readM4bMetadata(filePath: string): AudioMetadata {
+async function readM4bMetadata(filePath: string): Promise<AudioMetadata> {
   try {
-    const output = execSync(
-      `"${ffprobePath}" -v quiet -print_format json -show_format -show_streams "${filePath}"`,
-      { encoding: "utf-8" }
+    const { stdout } = await execFileAsync(
+      ffprobePath,
+      ["-v", "quiet", "-print_format", "json", "-show_format", filePath],
     );
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(stdout);
     const format = parsed.format || {};
     if (format.tags) {
       return extractCommonTags(format.tags);
@@ -69,23 +72,50 @@ function readM4bMetadata(filePath: string): AudioMetadata {
   }
 }
 
-function scanFiles(
-  filePaths: string[],
-  format: "mp3" | "m4b",
-  readMetadata: (path: string) => AudioMetadata
-): AudioFile[] {
-  const files: AudioFile[] = [];
-  for (const filePath of filePaths) {
-    let metadata = readMetadata(filePath);
-    if (Object.keys(metadata).length === 0) {
-      metadata = inferFromFilename(filePath);
+async function withConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let idx = 0;
+
+  async function worker(): Promise<void> {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i]);
     }
-    files.push({ path: filePath, format, existingMetadata: metadata });
   }
-  return files;
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
 }
 
-export function scanForAudioFiles(inputDir: string): AudioFile[] {
+async function scanFiles(
+  filePaths: string[],
+  format: "mp3" | "m4b",
+  readMetadata: (filePath: string) => AudioMetadata | Promise<AudioMetadata>,
+  concurrency: number,
+): Promise<AudioFile[]> {
+  if (filePaths.length === 0) return [];
+
+  const typedRead = readMetadata as (filePath: string) => Promise<AudioMetadata>;
+  const metadataResults = await withConcurrency(filePaths, concurrency, async (fp) => {
+    let metadata = await typedRead(fp);
+    if (Object.keys(metadata).length === 0) {
+      metadata = inferFromFilename(fp);
+    }
+    return metadata;
+  });
+
+  return filePaths.map((fp, i) => ({
+    path: fp,
+    format,
+    existingMetadata: metadataResults[i],
+  }));
+}
+
+export async function scanForAudioFiles(inputDir: string, concurrency = 8): Promise<AudioFile[]> {
   console.log(`Scanning ${inputDir} for audio files...`);
 
   if (!fs.existsSync(inputDir)) {
@@ -96,10 +126,12 @@ export function scanForAudioFiles(inputDir: string): AudioFile[] {
   const mp3Files = globSync("**/*.mp3", { cwd: inputDir, absolute: true });
   const m4bFiles = globSync("**/*.m4b", { cwd: inputDir, absolute: true });
 
-  const files = [
-    ...scanFiles(mp3Files, "mp3", readMp3Metadata),
-    ...scanFiles(m4bFiles, "m4b", readM4bMetadata),
-  ];
+  const [mp3Results, m4bResults] = await Promise.all([
+    scanFiles(mp3Files, "mp3", readMp3Metadata, concurrency),
+    scanFiles(m4bFiles, "m4b", readM4bMetadata, concurrency),
+  ]);
+
+  const files = [...mp3Results, ...m4bResults];
 
   console.log(`Found ${mp3Files.length} MP3 file(s) and ${m4bFiles.length} M4B file(s).`);
 
