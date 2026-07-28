@@ -49,7 +49,7 @@ export interface AbsMediaUpdatePayload {
 
 export interface AbsMatchPayload {
   provider: string;
-  asin: string;
+  asin?: string;
   title: string;
   author: string;
   series?: string;
