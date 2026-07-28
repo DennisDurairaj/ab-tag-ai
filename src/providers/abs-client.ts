@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
 
 export interface AbsClientConfig {
   url: string;
@@ -12,18 +13,27 @@ export interface AbsUploadResult {
   libraryItemId: string;
 }
 
+export interface AbsItemMetadata {
+  [key: string]: unknown;
+  title?: string;
+  author?: string;
+  authorName?: string;
+  series?: Array<{ name: string; sequence?: string }>;
+  seriesName?: string;
+  asin?: string;
+  description?: string;
+  genres?: string[];
+  publisher?: string;
+  language?: string;
+  isbn?: string;
+  narratorName?: string;
+}
+
 export interface AbsSearchItem {
   libraryItem: {
     id: string;
     media: {
-      metadata: {
-        title?: string;
-        author?: string;
-        authorName?: string;
-        series?: Array<{ name: string }>;
-        seriesName?: string;
-        asin?: string;
-      };
+      metadata: AbsItemMetadata;
     };
   };
 }
@@ -34,8 +44,7 @@ export interface AbsSearchResult {
 
 export interface AbsMediaUpdatePayload {
   asin?: string;
-  series?: string;
-  seriesPart?: string;
+  series?: Array<{ name: string; sequence?: string }>;
 }
 
 export interface AbsMatchPayload {
@@ -140,10 +149,59 @@ export interface AbsClient {
     coverPath: string;
     fetchFn?: typeof fetch;
   }): Promise<void>;
+
+  getItem(params: {
+    itemId: string;
+    fetchFn?: typeof fetch;
+  }): Promise<AbsSearchItem>;
 }
 
 function authHeaders(apiToken: string): Record<string, string> {
   return { Authorization: `Bearer ${apiToken}` };
+}
+
+function mimeForFile(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === ".mp3") return "audio/mpeg";
+  if (ext === ".m4b") return "audio/mp4";
+  return "application/octet-stream";
+}
+
+function buildMultipartBody(
+  fields: Array<[string, string]>,
+  fileEntries: Array<{ path: string; name: string; fieldName: string }>,
+  boundary: string,
+): ReadableStream<Uint8Array> {
+  async function* generate(): AsyncGenerator<Uint8Array> {
+    const enc = new TextEncoder();
+    const crlf = enc.encode("\r\n");
+
+    for (const [name, value] of fields) {
+      yield enc.encode(`--${boundary}\r\n`);
+      yield enc.encode(`Content-Disposition: form-data; name="${name}"\r\n\r\n`);
+      yield enc.encode(value);
+      yield crlf;
+    }
+
+    for (const file of fileEntries) {
+      yield enc.encode(`--${boundary}\r\n`);
+      yield enc.encode(
+        `Content-Disposition: form-data; name="${file.fieldName}"; filename="${file.name}"\r\n`,
+      );
+      yield enc.encode(`Content-Type: ${mimeForFile(file.name)}\r\n\r\n`);
+
+      const stream = fs.createReadStream(file.path, { highWaterMark: 256 * 1024 });
+      for await (const chunk of stream) {
+        yield new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+      }
+
+      yield crlf;
+    }
+
+    yield enc.encode(`--${boundary}--\r\n`);
+  }
+
+  return Readable.toWeb(Readable.from(generate())) as ReadableStream<Uint8Array>;
 }
 
 function stripTrailingSlash(url: string): string {
@@ -184,29 +242,36 @@ export function createAbsClient(config: AbsClientConfig): AbsClient {
     },
 
     async uploadFiles({ libraryId, folderId, title, author, series, files, fileNames, fetchFn = fetch }) {
-      const formData = new FormData();
-      formData.append("library", libraryId);
-      formData.append("folder", folderId);
-      formData.append("title", title);
-      formData.append("author", author);
-      if (series) formData.append("series", series);
+      const boundary = `----FormBoundary${Math.random().toString(36).slice(2)}`;
 
-      for (let i = 0; i < files.length; i++) {
-        const buffer = await fs.promises.readFile(files[i]);
-        const name = fileNames?.[i] ?? path.basename(files[i]);
-        formData.append(String(i), new File([buffer], name));
-      }
+      const body = buildMultipartBody(
+        [
+          ["library", libraryId],
+          ["folder", folderId],
+          ["title", title],
+          ["author", author],
+          ...(series ? [["series", series] as [string, string]] : []),
+        ],
+        files.map((fp, i) => ({
+          path: fp,
+          name: fileNames?.[i] ?? path.basename(fp),
+          fieldName: String(i),
+        })),
+        boundary,
+      );
 
       const response = await fetchFn(`${baseUrl}/api/upload`, {
         method: "POST",
-        headers: authHeaders(config.apiToken),
-        body: formData,
-      });
+        headers: {
+          ...authHeaders(config.apiToken),
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        },
+        body,
+        duplex: "half",
+      } as Parameters<typeof fetchFn>[1]);
 
       await checkResponse(response);
 
-      // The ABS upload endpoint returns 200 with an empty body on success.
-      // No IDs are returned — we must poll/lookup the item after upload.
       return { id: "", libraryItemId: "" };
     },
 
@@ -288,6 +353,16 @@ export function createAbsClient(config: AbsClientConfig): AbsClient {
       );
 
       await checkResponse(response);
+    },
+
+    async getItem({ itemId, fetchFn = fetch }) {
+      const response = await fetchFn(
+        `${baseUrl}/api/items/${encodeURIComponent(itemId)}?expanded=1`,
+        { headers: authHeaders(config.apiToken) },
+      );
+
+      await checkResponse(response);
+      return (await response.json()) as AbsSearchItem;
     },
   };
 }

@@ -205,7 +205,7 @@ describe("orchestrateBook", () => {
     if (result.status === "flagged") {
       expect(result.reason).toContain("iteration");
     }
-    expect(fakeFetch).toHaveBeenCalledTimes(100);
+    expect(fakeFetch).toHaveBeenCalledTimes(60);
   });
 });
 
@@ -276,6 +276,10 @@ describe("orchestrateBook — ABS upload flow", () => {
 
         if (url.includes("/api/items/item-1/match")) {
           return { ok: true, json: () => ({ updated: true }) };
+        }
+
+        if (url.includes("/api/items/item-1") && !url.includes("/match") && !url.includes("/cover") && !url.includes("/media")) {
+          return { ok: true, json: () => ({ libraryItem: { id: "item-1", media: { metadata: { title: "Test Book", authorName: "Author" } } } }) };
         }
 
         return { ok: false, status: 404 };

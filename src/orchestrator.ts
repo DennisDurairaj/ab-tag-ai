@@ -49,7 +49,7 @@ interface ToolCallRecord {
   };
 }
 
-const MAX_ITERATIONS = 50;
+const MAX_ITERATIONS = 30;
 
 const SYSTEM_PROMPT = `You are an audiobook metadata organizer. Given a book folder, determine the correct author and title from the path structure (Author/Series/Book/ or Author/Book/). The first path segment is always the author. Search providers and either write tagged output or flag for review.
 
@@ -648,46 +648,75 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     return fallback("Item ID not discovered after upload");
   }
 
-  let coverUploadOk = false;
-  if (coverArt) {
-    const tmpCoverPath = path.join(os.tmpdir(), `abs-cover-${Date.now()}.jpg`);
-    try {
-      fs.writeFileSync(tmpCoverPath, coverArt);
-      await withRetry("cover upload", () => absClient.uploadCover({ itemId, coverPath: tmpCoverPath, fetchFn }));
-      coverUploadOk = true;
-    } catch {
-      console.error(`  [ABS] Cover upload failed for item ${itemId} — will set overrideCover: true for provider match`);
-    } finally {
-      try { fs.unlinkSync(tmpCoverPath); } catch { /* ignore */ }
-    }
-  }
-
   try {
     await withRetry("PATCH metadata", () => absClient.updateMedia({
       itemId,
-      metadata: { asin, series, seriesPart },
+      metadata: {
+        asin,
+        series: series ? [{ name: series, sequence: seriesPart || undefined }] : undefined,
+      },
       fetchFn,
     }));
   } catch {
     console.error(`  [ABS] Failed to PATCH metadata for item ${itemId}`);
   }
 
-  const matchPayload = {
-    provider: "audible",
-    asin,
-    title,
-    author,
-    series,
-    seriesPart,
-    overrideCover: !coverUploadOk,
-    overrideDetails: false,
-  };
-
-  let matchResult: { updated: boolean } | undefined;
+  let providerMatched = false;
   try {
-    matchResult = await withRetry("provider match", () => absClient.matchItem({ itemId, payload: matchPayload, fetchFn }));
+    const matchPayload = {
+      provider: "audible",
+      asin,
+      title,
+      author,
+      series,
+      seriesPart,
+      overrideCover: false,
+      overrideDetails: true,
+    };
+    const matchResult = await withRetry("provider match", () => absClient.matchItem({ itemId, payload: matchPayload, fetchFn }));
+    providerMatched = matchResult.updated;
+
+    if (providerMatched) {
+      try {
+        const item = await withRetry("verify match", () => absClient.getItem({ itemId, fetchFn }));
+        const matchedMeta = item.libraryItem?.media?.metadata || {};
+        const matchedAuthor = getAuthorFromMeta(matchedMeta);
+        const matchedTitle = getTitleFromMeta(matchedMeta);
+
+        const authorOk = normalizeText(matchedAuthor) === normalizeText(author);
+        const titleOk = fuzzyMatch(matchedTitle, title);
+
+        if (!authorOk || !titleOk) {
+          console.error(
+            `  [ABS] Match returned wrong metadata: author="${matchedAuthor}" title="${matchedTitle}" — reverting`,
+          );
+          await withRetry("revert match", () =>
+            absClient.updateMedia({
+              itemId,
+              metadata: { asin, series: series ? [{ name: series, sequence: seriesPart || undefined }] : undefined },
+              fetchFn,
+            }),
+          );
+          providerMatched = false;
+        }
+      } catch {
+        console.error(`  [ABS] Failed to verify/revert match result for item ${itemId}`);
+      }
+    }
   } catch {
     console.error(`  [ABS] Provider match failed for item ${itemId}`);
+  }
+
+  if (coverArt) {
+    const tmpCoverPath = path.join(os.tmpdir(), `abs-cover-${Date.now()}.jpg`);
+    try {
+      fs.writeFileSync(tmpCoverPath, coverArt);
+      await withRetry("cover upload", () => absClient.uploadCover({ itemId, coverPath: tmpCoverPath, fetchFn }));
+    } catch {
+      console.error(`  [ABS] Cover upload failed for item ${itemId}`);
+    } finally {
+      try { fs.unlinkSync(tmpCoverPath); } catch { /* ignore */ }
+    }
   }
 
   let verifyResult: AbsSearchResult;
@@ -721,7 +750,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     }
   }
 
-  const matchNote = matchResult?.updated ? " (matched to provider)" : "";
+  const matchNote = providerMatched ? " (matched to provider)" : "";
   return {
     content: plainResult(`Uploaded to Audiobookshelf: "${title}" by ${author} (${ctx.bookSet.files.length} files)${matchNote}`),
     terminal: { status: "written", outputDir: `abs://${ctx.config.absUrl}/library/${libraryId}`, filesWritten: ctx.bookSet.files.length },
