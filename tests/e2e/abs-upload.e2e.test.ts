@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import type { BookSet, AudioFile } from "../../src/types.js";
 import { createAsinCache } from "../../src/providers/asin.js";
-import { createOrchestrator } from "../../src/orchestrator.js";
+import { writeOutputForBook } from "../../src/orchestrator.js";
+import type { OrchestratorConfig, ToolContext } from "../../src/orchestrator.js";
 import {
   startAbsContainer,
   stopAbsContainer,
@@ -23,46 +24,24 @@ function mkBookSet(files: AudioFile[]): BookSet {
   };
 }
 
-function makeWriteOutputChat(title: string, author: string, asin: string, series?: string): object {
-  const args: Record<string, string> = { title, author, asin };
-  if (series) args.series = series;
-  return {
-    choices: [
-      {
-        message: {
-          tool_calls: [
-            {
-              id: "call_w1",
-              type: "function",
-              function: {
-                name: "write_output",
-                arguments: JSON.stringify(args),
-              },
-            },
-          ],
-        },
-      },
-    ],
+function makeToolContext(
+  overrides: Partial<OrchestratorConfig> & { cache: ReturnType<typeof createAsinCache> },
+): ToolContext {
+  const config: OrchestratorConfig = {
+    model: "test-model",
+    apiKey: "test-key",
+    apiBaseUrl: "https://api.openai.com/v1",
+    hardcoverApiKey: "test-hc-key",
+    outputDir: "",
+    dryRun: false,
+    cache: overrides.cache,
+    outputMode: "audiobookshelf",
+    absUrl: "",
+    absApiToken: "",
+    absLibraryId: "",
+    ...overrides,
   };
-}
-
-function createE2eFetch(
-  chatResponseFn: () => object,
-  realFetch: typeof fetch,
-): typeof fetch {
-  return (async (input: string | URL, init?: RequestInit) => {
-    const url = input.toString();
-    if (url.includes("/chat/completions")) {
-      return {
-        ok: true,
-        status: 200,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: async () => chatResponseFn(),
-        text: async () => JSON.stringify(chatResponseFn()),
-      } as Response;
-    }
-    return realFetch(input, init);
-  }) as typeof fetch;
+  return { bookSet: { books: [{ path: "", title: "", author: "", asin: "" }], files: [] }, config, cache: overrides.cache, localCover: null };
 }
 
 const SAMPLE_MP3 = path.join(import.meta.dirname, "fixtures", "sample.mp3");
@@ -145,31 +124,22 @@ describe("ABS E2E — Docker integration", () => {
       const author = "E2E Test Author";
       const asin = "E2ETEST01Z";
 
-      const e2eFetch = createE2eFetch(
-        () => makeWriteOutputChat(title, author, asin),
-        fetch,
-      );
-
-      const orchestrate = createOrchestrator({
-        model: "test-model",
-        apiKey: "test-key",
-        hardcoverApiKey: "test-hc-key",
-        outputDir,
-        dryRun: false,
-        fetchFn: e2eFetch as typeof fetch,
+      const ctx = makeToolContext({
         cache,
+        outputDir,
         outputMode: "audiobookshelf",
         absUrl: env.url,
         absApiToken: env.apiToken,
         absLibraryId: env.libraryId,
       });
+      ctx.bookSet = bookSet;
 
-      const result = await orchestrate(bookSet);
+      const result = await writeOutputForBook({ title, author, asin }, ctx);
 
-      expect(result.status).toBe("written");
-      if (result.status === "written") {
-        expect(result.outputDir).toContain("abs://");
-        expect(result.filesWritten).toBe(1);
+      expect(result.terminal.status).toBe("written");
+      if (result.terminal.status === "written") {
+        expect(result.terminal.outputDir).toContain("abs://");
+        expect(result.terminal.filesWritten).toBe(1);
       }
 
       // Verify the book appears in the library
@@ -210,27 +180,18 @@ describe("ABS E2E — Docker integration", () => {
       const asin = "METATEST01Z";
       const series = "The Meta Series";
 
-      const e2eFetch = createE2eFetch(
-        () => makeWriteOutputChat(title, author, asin, series),
-        fetch,
-      );
-
-      const orchestrate = createOrchestrator({
-        model: "test-model",
-        apiKey: "test-key",
-        hardcoverApiKey: "test-hc-key",
-        outputDir,
-        dryRun: false,
-        fetchFn: e2eFetch as typeof fetch,
+      const ctx = makeToolContext({
         cache,
+        outputDir,
         outputMode: "audiobookshelf",
         absUrl: env.url,
         absApiToken: env.apiToken,
         absLibraryId: env.libraryId,
       });
+      ctx.bookSet = bookSet;
 
-      const result = await orchestrate(bookSet);
-      expect(result.status).toBe("written");
+      const result = await writeOutputForBook({ title, author, asin, series }, ctx);
+      expect(result.terminal.status).toBe("written");
 
       // Verify ASIN and series in ABS library
       const searchResult = (await searchByAsin(env, asin)) as {
@@ -278,30 +239,19 @@ describe("ABS E2E — Docker integration", () => {
       const author = "Dup Test Author";
       const asin = "DUPTEST001Z";
 
-      // First upload — should succeed
-      const e2eFetch1 = createE2eFetch(
-        () => makeWriteOutputChat(title, author, asin),
-        fetch,
-      );
-
-      const orchestrate1 = createOrchestrator({
-        model: "test-model",
-        apiKey: "test-key",
-        hardcoverApiKey: "test-hc-key",
-        outputDir,
-        dryRun: false,
-        fetchFn: e2eFetch1 as typeof fetch,
+      const ctx1 = makeToolContext({
         cache,
+        outputDir,
         outputMode: "audiobookshelf",
         absUrl: env.url,
         absApiToken: env.apiToken,
         absLibraryId: env.libraryId,
       });
+      ctx1.bookSet = bookSet;
 
-      const result1 = await orchestrate1(bookSet);
-      expect(result1.status).toBe("written");
+      const result1 = await writeOutputForBook({ title, author, asin }, ctx1);
+      expect(result1.terminal.status).toBe("written");
 
-      // Second upload of the SAME book — should be skipped (ASIN already in library)
       const tempDir2 = createTestDir();
       const outputDir2 = path.join(tempDir2, "output");
       const cache2 = createAsinCache(tempDir2);
@@ -309,30 +259,21 @@ describe("ABS E2E — Docker integration", () => {
       const { sourcePath: sourcePath2 } = setupBookFiles(tempDir2, "Author/Duplicate Test Book");
       const bookSet2 = mkBookSet([mkFile(sourcePath2)]);
 
-      const e2eFetch2 = createE2eFetch(
-        () => makeWriteOutputChat(title, author, asin),
-        fetch,
-      );
-
-      const orchestrate2 = createOrchestrator({
-        model: "test-model",
-        apiKey: "test-key",
-        hardcoverApiKey: "test-hc-key",
-        outputDir: outputDir2,
-        dryRun: false,
-        fetchFn: e2eFetch2 as typeof fetch,
+      const ctx2 = makeToolContext({
         cache: cache2,
+        outputDir: outputDir2,
         outputMode: "audiobookshelf",
         absUrl: env.url,
         absApiToken: env.apiToken,
         absLibraryId: env.libraryId,
       });
+      ctx2.bookSet = bookSet2;
 
-      const result2 = await orchestrate2(bookSet2);
-      expect(result2.status).toBe("skipped");
-      if (result2.status === "skipped") {
-        expect(result2.reason).toContain("Duplicate");
-        expect(result2.reason).toContain(asin);
+      const result2 = await writeOutputForBook({ title, author, asin }, ctx2);
+      expect(result2.terminal.status).toBe("skipped");
+      if (result2.terminal.status === "skipped") {
+        expect(result2.terminal.reason).toContain("Duplicate");
+        expect(result2.terminal.reason).toContain(asin);
       }
     },
     120000,
@@ -356,30 +297,21 @@ describe("ABS E2E — Docker integration", () => {
       const author = "Rick Riordan";
       const asin = "REALTEST001";
 
-      const e2eFetch = createE2eFetch(
-        () => makeWriteOutputChat(title, author, asin),
-        fetch,
-      );
-
-      const orchestrate = createOrchestrator({
-        model: "test-model",
-        apiKey: "test-key",
-        hardcoverApiKey: "test-hc-key",
-        outputDir,
-        dryRun: false,
-        fetchFn: e2eFetch as typeof fetch,
+      const ctx = makeToolContext({
         cache,
+        outputDir,
         outputMode: "audiobookshelf",
         absUrl: env.url,
         absApiToken: env.apiToken,
         absLibraryId: env.libraryId,
       });
+      ctx.bookSet = bookSet;
 
-      const result = await orchestrate(bookSet);
+      const result = await writeOutputForBook({ title, author, asin }, ctx);
 
-      expect(result.status).toBe("written");
-      if (result.status === "written") {
-        expect(result.outputDir).toContain("abs://");
+      expect(result.terminal.status).toBe("written");
+      if (result.terminal.status === "written") {
+        expect(result.terminal.outputDir).toContain("abs://");
       }
 
       const searchResult = (await searchByAsin(env, asin)) as {
@@ -417,32 +349,23 @@ describe("ABS E2E — Docker integration", () => {
       // Kill the ABS container first
       await killAbsContainer();
 
-      const e2eFetch = createE2eFetch(
-        () => makeWriteOutputChat(title, author, asin),
-        fetch,
-      );
-
-      const orchestrate = createOrchestrator({
-        model: "test-model",
-        apiKey: "test-key",
-        hardcoverApiKey: "test-hc-key",
-        outputDir,
-        dryRun: false,
-        fetchFn: e2eFetch as typeof fetch,
+      const ctx = makeToolContext({
         cache,
+        outputDir,
         outputMode: "audiobookshelf",
         absUrl: env.url,
         absApiToken: env.apiToken,
         absLibraryId: env.libraryId,
       });
+      ctx.bookSet = bookSet;
 
-      const result = await orchestrate(bookSet);
-      expect(result.status).toBe("written");
-      expect(result.outputDir).toContain("Fallback Author");
-      expect(result.outputDir).toContain("The Fallback Book");
-      if (result.status === "written") {
-        expect(result.fallbackReason).toBeDefined();
-        expect(result.fallbackReason).toMatch(/Search error|ECONNREFUSED|fetch/);
+      const result = await writeOutputForBook({ title, author, asin }, ctx);
+      expect(result.terminal.status).toBe("written");
+      expect(result.terminal.outputDir).toContain("Fallback Author");
+      expect(result.terminal.outputDir).toContain("The Fallback Book");
+      if (result.terminal.status === "written") {
+        expect(result.terminal.fallbackReason).toBeDefined();
+        expect(result.terminal.fallbackReason).toMatch(/Search error|ECONNREFUSED|fetch/);
       }
 
       // Verify local output files exist with correct structure

@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import type { BookSet, AudioFile } from "../src/types.js";
+import type { BookSet, AudioFile, ResolvedMetadata } from "../src/types.js";
+import type { OrchestratorConfig, ToolContext } from "../src/orchestrator.js";
+import { writeOutputForBook } from "../src/orchestrator.js";
 import { createAsinCache } from "../src/providers/asin.js";
 
 vi.mock("../src/utils.js", async () => {
@@ -18,19 +20,6 @@ function mkBookSet(files: AudioFile[]): BookSet {
   return { books: [{ path: files[0].path, title: "Test Book", author: "", asin: "" }], files };
 }
 
-function mockChatResponse(content: string | null, toolCalls?: Array<{ id: string; name: string; args: Record<string, unknown> }>) {
-  const message: Record<string, unknown> = {};
-  if (content) message.content = content;
-  if (toolCalls && toolCalls.length > 0) {
-    message.tool_calls = toolCalls.map((tc) => ({
-      id: tc.id,
-      type: "function",
-      function: { name: tc.name, arguments: JSON.stringify(tc.args) },
-    }));
-  }
-  return { choices: [{ message }] };
-}
-
 let cache: ReturnType<typeof createAsinCache>;
 let tmpDir: string;
 let outputDir: string;
@@ -41,190 +30,78 @@ beforeEach(() => {
   cache = createAsinCache(tmpDir);
 });
 
-import { createOrchestrator } from "../src/orchestrator.js";
-
-function createTempFile(dir: string, name: string): string {
+function createDummyMp3(dir: string, name: string): string {
   const filePath = path.join(dir, name);
-  fs.writeFileSync(filePath, Buffer.from("fake mp3 data"));
+  const minimalMp3 = Buffer.from([
+    0xff, 0xfb, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  ]);
+  fs.writeFileSync(filePath, minimalMp3);
   return filePath;
 }
 
-describe("orchestrateBook", () => {
-  it("flag path: LLM flags after search returns candidates that don't match folder path", async () => {
-    const bookDir = path.join(tmpDir, "Author", "Unknown Book");
+function makeToolContext(bookSet: BookSet, overrides: Partial<OrchestratorConfig> = {}): ToolContext {
+  const config: OrchestratorConfig = {
+    model: "test-model",
+    apiKey: "test-key",
+    apiBaseUrl: "https://api.openai.com/v1",
+    hardcoverApiKey: "test-hc-key",
+    outputDir,
+    dryRun: false,
+    cache,
+    outputMode: "local",
+    absUrl: "",
+    absApiToken: "",
+    absLibraryId: "",
+    ...overrides,
+  };
+  return { bookSet, config, cache, localCover: null };
+}
+
+describe("writeOutputForBook — local mode", () => {
+  it("writes files in dry-run mode", async () => {
+    const bookDir = path.join(tmpDir, "Author", "Test Book");
     fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
+    const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
+    const bookSet = mkBookSet([mkFile(sourcePath)]);
 
-    let call = 0;
-    const fakeFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = input.toString();
-      call++;
+    const ctx = makeToolContext(bookSet, { dryRun: true });
+    const result = await writeOutputForBook({
+      title: "Test Book",
+      author: "Author",
+      asin: "B000000001",
+    }, ctx);
 
-      if (url.includes("/chat/completions")) {
-        if (call === 1) {
-          return { ok: true, json: () => mockChatResponse(null, [
-            { id: "call_1", name: "search_open_library", args: { title: "Unknown Book", author: "Author" } },
-          ]) };
-        }
-        if (call === 3) {
-          return { ok: true, json: () => mockChatResponse(null, [
-            { id: "call_2", name: "flag_for_review", args: { reason: "No provider returned a matching book" } },
-          ]) };
-        }
-      }
-
-      if (url.includes("openlibrary.org")) {
-        return { ok: true, json: () => ({ numFound: 0, docs: [] }) };
-      }
-
-      return { ok: false, status: 404, json: () => ({}) };
-    });
-
-    const orchestrate = createOrchestrator({
-      model: "test-model",
-      apiKey: "test-key",
-      hardcoverApiKey: "test-hc-key",
-      outputDir,
-      dryRun: false,
-      fetchFn: fakeFetch as unknown as typeof fetch,
-      cache,
-    });
-
-    const result = await orchestrate(bookSet);
-    expect(result.status).toBe("flagged");
-    if (result.status === "flagged") {
-      expect(result.reason).toBe("No provider returned a matching book");
-    }
+    expect(result.terminal.status).toBe("written");
   });
 
-  it("retry path: LLM first search fails, retries with different author, then flags", async () => {
-    const bookDir = path.join(tmpDir, "Peters, Elizabeth", "Vicky Bliss series", "Laughter of Dead Kings");
+  it("writes files in local mode", async () => {
+    const bookDir = path.join(tmpDir, "Author", "Test Book");
     fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
+    const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
+    const bookSet = mkBookSet([mkFile(sourcePath)]);
 
-    let call = 0;
-    const fakeFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = input.toString();
-      call++;
+    const ctx = makeToolContext(bookSet);
+    const result = await writeOutputForBook({
+      title: "Test Book",
+      author: "Author",
+      asin: "B000000001",
+    }, ctx);
 
-      if (url.includes("/chat/completions")) {
-        if (call === 1) {
-          return { ok: true, json: () => mockChatResponse(null, [
-            { id: "call_1", name: "search_open_library", args: { title: "Laughter of Dead Kings", author: "Vicky Bliss series" } },
-          ]) };
-        }
-        if (call === 3) {
-          return { ok: true, json: () => mockChatResponse(null, [
-            { id: "call_2", name: "search_open_library", args: { title: "Laughter of Dead Kings", author: "Elizabeth Peters" } },
-          ]) };
-        }
-        if (call === 5) {
-          return { ok: true, json: () => mockChatResponse(null, [
-            { id: "call_3", name: "flag_for_review", args: { reason: "No providers returned matching results" } },
-          ]) };
-        }
-      }
-
-      if (url.includes("openlibrary.org")) {
-        return { ok: true, json: () => ({ numFound: 0, docs: [] }) };
-      }
-
-      return { ok: false, status: 404, json: () => ({}) };
-    });
-
-    const orchestrate = createOrchestrator({
-      model: "test-model",
-      apiKey: "test-key",
-      hardcoverApiKey: "test-hc-key",
-      outputDir,
-      dryRun: false,
-      fetchFn: fakeFetch as unknown as typeof fetch,
-      cache,
-    });
-
-    const result = await orchestrate(bookSet);
-    expect(result.status).toBe("flagged");
-    expect(fakeFetch).toHaveBeenCalled();
-    const chatCalls = fakeFetch.mock.calls.filter(([input]) => input.toString().includes("/chat/completions"));
-    expect(chatCalls.length).toBe(3);
-  });
-
-  it("terminal guard: LLM returns message with no tool calls → auto-flag", async () => {
-    const bookDir = path.join(tmpDir, "Author", "Book");
-    fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
-
-    const fakeFetch = vi.fn(async () => {
-      return { ok: true, json: () => ({ choices: [{ message: { content: "I'm done!" } }] }) };
-    });
-
-    const orchestrate = createOrchestrator({
-      model: "test-model",
-      apiKey: "test-key",
-      hardcoverApiKey: "test-hc-key",
-      outputDir,
-      dryRun: false,
-      fetchFn: fakeFetch as unknown as typeof fetch,
-      cache,
-    });
-
-    const result = await orchestrate(bookSet);
-    expect(result.status).toBe("flagged");
-    if (result.status === "flagged") {
-      expect(result.reason).toBe("I'm done!");
+    expect(result.terminal.status).toBe("written");
+    if (result.terminal.status === "written") {
+      expect(result.terminal.filesWritten).toBe(1);
+      expect(fs.existsSync(result.terminal.outputDir)).toBe(true);
     }
-  });
-
-  it("max-iteration guard: auto-flags after too many tool calls", async () => {
-    const bookDir = path.join(tmpDir, "Author", "Book");
-    fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
-
-    const fakeFetch = vi.fn(async () => {
-      return { ok: true, json: () => mockChatResponse(null, [
-        { id: "call_loop", name: "search_open_library", args: { title: "Book", author: "Author" } },
-      ]) };
-    });
-
-    const orchestrate = createOrchestrator({
-      model: "test-model",
-      apiKey: "test-key",
-      hardcoverApiKey: "test-hc-key",
-      outputDir,
-      dryRun: false,
-      fetchFn: fakeFetch as unknown as typeof fetch,
-      cache,
-    });
-
-    const result = await orchestrate(bookSet);
-    expect(result.status).toBe("flagged");
-    if (result.status === "flagged") {
-      expect(result.reason).toContain("iteration");
-    }
-    expect(fakeFetch).toHaveBeenCalledTimes(60);
   });
 });
 
-describe("orchestrateBook — ABS upload flow", () => {
+describe("writeOutputForBook — ABS upload flow", () => {
   const ABS_URL = "https://abs.example.com";
   const ABS_LIBRARY_ID = "lib-1";
   const ABS_ALBUM_PATH = path.join("Author", "Test Book");
 
-  function createDummyMp3(dir: string, name: string): string {
-    const filePath = path.join(dir, name);
-    const minimalMp3 = Buffer.from([
-      0xff, 0xfb, 0x90, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ]);
-    fs.writeFileSync(filePath, minimalMp3);
-    return filePath;
-  }
-
-  it("trust path: LLM writes to ABS, upload succeeds, returns written", async () => {
+  it("trust path: upload succeeds, returns written", async () => {
     const origSetTimeout = globalThis.setTimeout;
     globalThis.setTimeout = ((fn: () => void) => { fn(); return 0 as unknown as NodeJS.Timeout; }) as typeof setTimeout;
     try {
@@ -237,13 +114,6 @@ describe("orchestrateBook — ABS upload flow", () => {
       const fakeFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
         const url = input.toString();
 
-        if (url.includes("/chat/completions")) {
-          return { ok: true, json: () => mockChatResponse(null, [
-            { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
-          ]) };
-        }
-
-        // getLibrary: GET /api/libraries/{id} (not search, not scan)
         if (url.match(/\/api\/libraries\/[^/]+\/?$/) && !url.includes("/search") && !url.includes("/scan")) {
           return { ok: true, json: () => ({ id: "lib-1", folders: [{ id: "folder-1", fullPath: "/audiobooks" }] }) };
         }
@@ -285,25 +155,24 @@ describe("orchestrateBook — ABS upload flow", () => {
         return { ok: false, status: 404 };
       });
 
-      const orchestrate = createOrchestrator({
-        model: "test-model",
-        apiKey: "test-key",
-        hardcoverApiKey: "test-hc-key",
-        outputDir,
-        dryRun: false,
-        fetchFn: fakeFetch as unknown as typeof fetch,
-        cache,
+      const ctx = makeToolContext(bookSet, {
         outputMode: "audiobookshelf",
         absUrl: ABS_URL,
         absApiToken: "abs-token",
         absLibraryId: ABS_LIBRARY_ID,
+        fetchFn: fakeFetch as unknown as typeof fetch,
       });
 
-      const result = await orchestrate(bookSet);
-      expect(result.status).toBe("written");
-      if (result.status === "written") {
-        expect(result.outputDir).toContain("abs://");
-        expect(result.filesWritten).toBe(1);
+      const result = await writeOutputForBook({
+        title: "Test Book",
+        author: "Author",
+        asin: "B000000001",
+      }, ctx);
+
+      expect(result.terminal.status).toBe("written");
+      if (result.terminal.status === "written") {
+        expect(result.terminal.outputDir).toContain("abs://");
+        expect(result.terminal.filesWritten).toBe(1);
       }
     } finally {
       globalThis.setTimeout = origSetTimeout;
@@ -316,21 +185,13 @@ describe("orchestrateBook — ABS upload flow", () => {
     const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
     const bookSet = mkBookSet([mkFile(sourcePath)]);
 
-    let call = 0;
     const fakeFetch = vi.fn(async (input: string | URL) => {
       const url = input.toString();
-      call++;
-
-      if (url.includes("/chat/completions")) {
-        return { ok: true, json: () => mockChatResponse(null, [
-          { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
-        ]) };
-      }
 
       if (url.includes("/api/libraries/lib-1/search")) {
         return { ok: true, json: () => ({
           book: [
-{ libraryItem: { id: "existing-1", media: { metadata: { title: "Test Book", authorName: "Author" } } } },
+            { libraryItem: { id: "existing-1", media: { metadata: { title: "Test Book", authorName: "Author" } } } },
           ],
         }) };
       }
@@ -338,24 +199,23 @@ describe("orchestrateBook — ABS upload flow", () => {
       return { ok: false, status: 404 };
     });
 
-    const orchestrate = createOrchestrator({
-      model: "test-model",
-      apiKey: "test-key",
-      hardcoverApiKey: "test-hc-key",
-      outputDir,
-      dryRun: false,
-      fetchFn: fakeFetch as unknown as typeof fetch,
-      cache,
+    const ctx = makeToolContext(bookSet, {
       outputMode: "audiobookshelf",
       absUrl: ABS_URL,
       absApiToken: "abs-token",
       absLibraryId: ABS_LIBRARY_ID,
+      fetchFn: fakeFetch as unknown as typeof fetch,
     });
 
-    const result = await orchestrate(bookSet);
-    expect(result.status).toBe("skipped");
-    if (result.status === "skipped") {
-      expect(result.reason).toContain("Duplicate ASIN");
+    const result = await writeOutputForBook({
+      title: "Test Book",
+      author: "Author",
+      asin: "B000000001",
+    }, ctx);
+
+    expect(result.terminal.status).toBe("skipped");
+    if (result.terminal.status === "skipped") {
+      expect(result.terminal.reason).toContain("Duplicate ASIN");
     }
   });
 
@@ -372,22 +232,13 @@ describe("orchestrateBook — ABS upload flow", () => {
       const fakeFetch = vi.fn(async (input: string | URL) => {
         const url = input.toString();
 
-        if (url.includes("/chat/completions")) {
-          return { ok: true, json: () => mockChatResponse(null, [
-            { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
-          ]) };
-        }
-
-        // getLibrary mock
         if (url.match(/\/api\/libraries\/[^/]+\/?$/) && !url.includes("/search") && !url.includes("/scan")) {
           return { ok: true, json: () => ({ id: "lib-1", folders: [{ id: "folder-1", fullPath: "/audiobooks" }] }) };
         }
 
         if (url.includes("/api/libraries/lib-1/search")) {
           searchCall++;
-          // Duplicate checks (ASIN then title): return empty
           if (searchCall <= 2) return { ok: true, json: () => ({ book: [] }) };
-          // Poll (search by title): return correct match
           if (searchCall === 3) {
             return { ok: true, json: () => ({
               book: [
@@ -395,10 +246,9 @@ describe("orchestrateBook — ABS upload flow", () => {
               ],
             }) };
           }
-          // Verify (search by ASIN): return wrong metadata
           return { ok: true, json: () => ({
             book: [
-{ libraryItem: { id: "item-1", media: { metadata: { title: "Wrong Title", authorName: "Wrong Author" } } } },
+              { libraryItem: { id: "item-1", media: { metadata: { title: "Wrong Title", authorName: "Wrong Author" } } } },
             ],
           }) };
         }
@@ -426,27 +276,26 @@ describe("orchestrateBook — ABS upload flow", () => {
         return { ok: false, status: 404 };
       });
 
-    const orchestrate = createOrchestrator({
-      model: "test-model",
-      apiKey: "test-key",
-      hardcoverApiKey: "test-hc-key",
-      outputDir,
-      dryRun: false,
-      fetchFn: fakeFetch as unknown as typeof fetch,
-      cache,
-      outputMode: "audiobookshelf",
-      absUrl: ABS_URL,
-      absApiToken: "abs-token",
-      absLibraryId: ABS_LIBRARY_ID,
-    });
+      const ctx = makeToolContext(bookSet, {
+        outputMode: "audiobookshelf",
+        absUrl: ABS_URL,
+        absApiToken: "abs-token",
+        absLibraryId: ABS_LIBRARY_ID,
+        fetchFn: fakeFetch as unknown as typeof fetch,
+      });
 
-    const result = await orchestrate(bookSet);
-    expect(result.status).toBe("flagged");
-    if (result.status === "flagged") {
-      expect(result.reason).toContain("ABS verify mismatch");
-      expect(result.reason).toContain("Wrong Title");
-      expect(result.reason).toContain("Wrong Author");
-    }
+      const result = await writeOutputForBook({
+        title: "Test Book",
+        author: "Author",
+        asin: "B000000001",
+      }, ctx);
+
+      expect(result.terminal.status).toBe("flagged");
+      if (result.terminal.status === "flagged") {
+        expect(result.terminal.reason).toContain("ABS verify mismatch");
+        expect(result.terminal.reason).toContain("Wrong Title");
+        expect(result.terminal.reason).toContain("Wrong Author");
+      }
     } finally {
       globalThis.setTimeout = origSetTimeout;
     }
@@ -460,53 +309,51 @@ describe("orchestrateBook — ABS upload flow", () => {
       fs.mkdirSync(bookDir, { recursive: true });
       const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
       const bookSet = mkBookSet([mkFile(sourcePath)]);
+
       let searchCallCount = 0;
       let uploadCalls = 0;
       const fakeFetch = vi.fn(async (input: string | URL) => {
         const url = input.toString();
-        if (url.includes("/chat/completions")) {
-          return { ok: true, json: () => mockChatResponse(null, [
-            { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
-          ]) };
-        }
-        // getLibrary mock
+
         if (url.match(/\/api\/libraries\/[^/]+\/?$/) && !url.includes("/search") && !url.includes("/scan")) {
           return { ok: true, json: () => ({ id: "lib-1", folders: [{ id: "folder-1", fullPath: "/audiobooks" }] }) };
         }
+
         if (url.includes("/api/libraries/lib-1/search")) {
           searchCallCount++;
           return { ok: true, json: () => ({ book: [] }) };
         }
+
         if (url.includes("/api/upload")) {
           uploadCalls++;
           return { ok: false, status: 401, text: async () => "Unauthorized" };
         }
+
         return { ok: false, status: 404 };
       });
 
-    const orchestrate = createOrchestrator({
-      model: "test-model",
-      apiKey: "test-key",
-      hardcoverApiKey: "test-hc-key",
-      outputDir,
-      dryRun: false,
-      fetchFn: fakeFetch as unknown as typeof fetch,
-      cache,
-      outputMode: "audiobookshelf",
-      absUrl: ABS_URL,
-      absApiToken: "abs-token",
-      absLibraryId: ABS_LIBRARY_ID,
-    });
+      const ctx = makeToolContext(bookSet, {
+        outputMode: "audiobookshelf",
+        absUrl: ABS_URL,
+        absApiToken: "abs-token",
+        absLibraryId: ABS_LIBRARY_ID,
+        fetchFn: fakeFetch as unknown as typeof fetch,
+      });
 
-    const result = await orchestrate(bookSet);
-    expect(result.status).toBe("written");
-    expect(result.outputDir).toContain("Author");
-    expect(result.outputDir).toContain("Test Book");
-    if (result.status === "written") {
-      expect(result.fallbackReason).toBeDefined();
-      expect(result.fallbackReason).toContain("401 Unauthorized");
-    }
-    expect(uploadCalls).toBe(1); // no retries for non-retryable
+      const result = await writeOutputForBook({
+        title: "Test Book",
+        author: "Author",
+        asin: "B000000001",
+      }, ctx);
+
+      expect(result.terminal.status).toBe("written");
+      expect(result.terminal.outputDir).toContain("Author");
+      expect(result.terminal.outputDir).toContain("Test Book");
+      if (result.terminal.status === "written") {
+        expect(result.terminal.fallbackReason).toBeDefined();
+        expect(result.terminal.fallbackReason).toContain("401 Unauthorized");
+      }
+      expect(uploadCalls).toBe(1);
     } finally {
       globalThis.setTimeout = origSetTimeout;
     }
@@ -526,13 +373,6 @@ describe("orchestrateBook — ABS upload flow", () => {
       const fakeFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
         const url = input.toString();
 
-        if (url.includes("/chat/completions")) {
-          return { ok: true, json: () => mockChatResponse(null, [
-            { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
-          ]) };
-        }
-
-        // getLibrary mock
         if (url.match(/\/api\/libraries\/[^/]+\/?$/) && !url.includes("/search") && !url.includes("/scan")) {
           return { ok: true, json: () => ({ id: "lib-1", folders: [{ id: "folder-1", fullPath: "/audiobooks" }] }) };
         }
@@ -574,24 +414,23 @@ describe("orchestrateBook — ABS upload flow", () => {
         return { ok: false, status: 404 };
       });
 
-      const orchestrate = createOrchestrator({
-        model: "test-model",
-        apiKey: "test-key",
-        hardcoverApiKey: "test-hc-key",
-        outputDir,
-        dryRun: false,
-        fetchFn: fakeFetch as unknown as typeof fetch,
-        cache,
+      const ctx = makeToolContext(bookSet, {
         outputMode: "audiobookshelf",
         absUrl: ABS_URL,
         absApiToken: "abs-token",
         absLibraryId: ABS_LIBRARY_ID,
+        fetchFn: fakeFetch as unknown as typeof fetch,
       });
 
-      const result = await orchestrate(bookSet);
-      expect(result.status).toBe("written");
-      if (result.status === "written") {
-        expect(result.outputDir).toContain("abs://");
+      const result = await writeOutputForBook({
+        title: "Test Book",
+        author: "Author",
+        asin: "B000000001",
+      }, ctx);
+
+      expect(result.terminal.status).toBe("written");
+      if (result.terminal.status === "written") {
+        expect(result.terminal.outputDir).toContain("abs://");
       }
       expect(uploadCalls).toBeGreaterThanOrEqual(3);
     } finally {
@@ -613,13 +452,6 @@ describe("orchestrateBook — ABS upload flow", () => {
       const fakeFetch = vi.fn(async (input: string | URL) => {
         const url = input.toString();
 
-        if (url.includes("/chat/completions")) {
-          return { ok: true, json: () => mockChatResponse(null, [
-            { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
-          ]) };
-        }
-
-        // getLibrary mock
         if (url.match(/\/api\/libraries\/[^/]+\/?$/) && !url.includes("/search") && !url.includes("/scan")) {
           return { ok: true, json: () => ({ id: "lib-1", folders: [{ id: "folder-1", fullPath: "/audiobooks" }] }) };
         }
@@ -637,27 +469,26 @@ describe("orchestrateBook — ABS upload flow", () => {
         return { ok: false, status: 404 };
       });
 
-      const orchestrate = createOrchestrator({
-        model: "test-model",
-        apiKey: "test-key",
-        hardcoverApiKey: "test-hc-key",
-        outputDir,
-        dryRun: false,
-        fetchFn: fakeFetch as unknown as typeof fetch,
-        cache,
+      const ctx = makeToolContext(bookSet, {
         outputMode: "audiobookshelf",
         absUrl: ABS_URL,
         absApiToken: "abs-token",
         absLibraryId: ABS_LIBRARY_ID,
+        fetchFn: fakeFetch as unknown as typeof fetch,
       });
 
-      const result = await orchestrate(bookSet);
-      expect(result.status).toBe("written");
-      expect(result.outputDir).toContain("Author");
-      expect(result.outputDir).toContain("Test Book");
-      if (result.status === "written") {
-        expect(result.fallbackReason).toBeDefined();
-        expect(result.fallbackReason).toContain("Upload failed");
+      const result = await writeOutputForBook({
+        title: "Test Book",
+        author: "Author",
+        asin: "B000000001",
+      }, ctx);
+
+      expect(result.terminal.status).toBe("written");
+      expect(result.terminal.outputDir).toContain("Author");
+      expect(result.terminal.outputDir).toContain("Test Book");
+      if (result.terminal.status === "written") {
+        expect(result.terminal.fallbackReason).toBeDefined();
+        expect(result.terminal.fallbackReason).toContain("Upload failed");
       }
       expect(uploadCalls).toBe(4);
     } finally {
@@ -665,4 +496,3 @@ describe("orchestrateBook — ABS upload flow", () => {
     }
   });
 });
-

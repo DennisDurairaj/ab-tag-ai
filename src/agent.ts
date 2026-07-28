@@ -30,8 +30,6 @@ export async function processLibrary(config: Config): Promise<void> {
 
   printSummary(bookSets);
 
-  printSummary(bookSets);
-
   const asinCache = createAsinCache(CACHE_DIR);
   const interpretPath = createPathInterpreter({
     model: config.llm_model,
@@ -157,7 +155,7 @@ function printSummary(bookSets: BookSet[]): void {
 
 async function processBook(
   bookSet: BookSet,
-  _config: Config,
+  config: Config,
   verifyBook: ReturnType<typeof createVerifier>,
   fallbacks: Array<{ title: string; reason: string }>,
   interpretPath: ReturnType<typeof createPathInterpreter>,
@@ -183,13 +181,13 @@ async function processBook(
 
   const searchResult = await deterministicSearch(bookSet, pathResult.title, pathResult.author, {
     cache: asinCache,
-    hardcoverApiKey: _config.hardcover_api_key,
-    outputDir: _config.output,
-    dryRun: _config.dry_run,
-    outputMode: _config.output_mode,
-    absUrl: _config.abs_url,
-    absApiToken: _config.abs_api_token,
-    absLibraryId: _config.abs_library_id,
+    hardcoverApiKey: config.hardcover_api_key,
+    outputDir: config.output,
+    dryRun: config.dry_run,
+    outputMode: config.output_mode,
+    absUrl: config.abs_url,
+    absApiToken: config.abs_api_token,
+    absLibraryId: config.abs_library_id,
     localCover,
   });
 
