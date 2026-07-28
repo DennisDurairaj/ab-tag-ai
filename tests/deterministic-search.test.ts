@@ -18,9 +18,21 @@ vi.mock("../src/providers/audnexus.js", async () => {
   };
 });
 
-vi.mock("../src/providers/metadata-resolver.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/providers/metadata-resolver.js")>("../src/providers/metadata-resolver.js");
-  return { ...actual, fetchNextCandidate: vi.fn() };
+vi.mock("../src/providers/open-library.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/providers/open-library.js")>("../src/providers/open-library.js");
+  return {
+    ...actual,
+    searchOpenLibraryAsin: vi.fn(),
+    searchOpenLibraryByIsbn: vi.fn(),
+  };
+});
+
+vi.mock("../src/providers/hardcover.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/providers/hardcover.js")>("../src/providers/hardcover.js");
+  return {
+    ...actual,
+    searchHardcoverAsin: vi.fn(),
+  };
 });
 
 vi.mock("../src/providers/cover-art.js", async () => {
@@ -62,6 +74,7 @@ let outputDir: string;
 let cache: ReturnType<typeof createAsinCache>;
 
 beforeEach(() => {
+  vi.resetAllMocks();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "deterministic-search-test-"));
   outputDir = path.join(tmpDir, "output");
   cache = createAsinCache(tmpDir);
@@ -75,18 +88,38 @@ function createTempFile(dir: string, name: string): string {
 
 import { deterministicSearch } from "../src/deterministic-search.js";
 import { lookupAudnexusBook } from "../src/providers/audnexus.js";
-import { fetchNextCandidate } from "../src/providers/metadata-resolver.js";
+import { searchOpenLibraryAsin, searchOpenLibraryByIsbn } from "../src/providers/open-library.js";
+import { searchHardcoverAsin } from "../src/providers/hardcover.js";
 
 const mockLookupAudnexus = vi.mocked(lookupAudnexusBook);
-const mockFetchNextCandidate = vi.mocked(fetchNextCandidate);
+const mockSearchOL = vi.mocked(searchOpenLibraryAsin);
+const mockSearchOLByIsbn = vi.mocked(searchOpenLibraryByIsbn);
+const mockSearchHC = vi.mocked(searchHardcoverAsin);
+
+function makeBaseConfig() {
+  return {
+    cache,
+    hardcoverApiKey: "test-hc",
+    outputDir,
+    dryRun: true,
+    outputMode: "local" as const,
+    absUrl: "",
+    absApiToken: "",
+    absLibraryId: "",
+    localCover: null,
+  };
+}
+
+function setupBook(dir: string): BookSet {
+  const bookDir = path.join(tmpDir, ...dir.split("/"));
+  fs.mkdirSync(bookDir, { recursive: true });
+  createTempFile(bookDir, "chapter.mp3");
+  return mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
+}
 
 describe("deterministicSearch", () => {
   it("cache hit → Audnexus enrichment → writes output", async () => {
-    const bookDir = path.join(tmpDir, "Author", "Test Book");
-    fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
-
+    const bookSet = setupBook("Author/Test Book");
     cache.set("Test Book/Author", "B001TEST01");
 
     mockLookupAudnexus.mockResolvedValueOnce({
@@ -98,191 +131,175 @@ describe("deterministicSearch", () => {
       runtimeLengthMin: 600,
     } as never);
 
-    const result = await deterministicSearch(bookSet, "Test Book", "Author", {
-      cache,
-      hardcoverApiKey: "test-hc",
-      outputDir,
-      dryRun: true,
-      outputMode: "local",
-      absUrl: "",
-      absApiToken: "",
-      absLibraryId: "",
-      localCover: null,
-    });
-
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
     expect(result.status).toBe("written");
     expect(mockLookupAudnexus).toHaveBeenCalledWith("B001TEST01", { fetchFn: undefined });
   });
 
   it("cache hit with Audnexus failure writes without enrichment", async () => {
-    const bookDir = path.join(tmpDir, "Author", "Test Book");
-    fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
-
+    const bookSet = setupBook("Author/Test Book");
     cache.set("Test Book/Author", "B001TEST01");
     mockLookupAudnexus.mockResolvedValueOnce(null as never);
 
-    const result = await deterministicSearch(bookSet, "Test Book", "Author", {
-      cache,
-      hardcoverApiKey: "test-hc",
-      outputDir,
-      dryRun: true,
-      outputMode: "local",
-      absUrl: "",
-      absApiToken: "",
-      absLibraryId: "",
-      localCover: null,
-    });
-
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
     expect(result.status).toBe("written");
   });
 
-  it("cache miss → fetchNextCandidate → fuzzy match success → writes output", async () => {
-    const bookDir = path.join(tmpDir, "Author", "Test Book");
-    fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
+  it("OL+HC parallel search → merge results → writes output", async () => {
+    const bookSet = setupBook("Author/Test Book");
 
-    mockFetchNextCandidate.mockResolvedValueOnce({
-      metadata: {
-        title: "Test Book",
-        author: "Author",
-        asin: "B001TEST02",
-        narrator: "Narrator Name",
-        coverUrl: "https://example.com/cover.jpg",
-      },
-      source: "open-library",
-    });
+    mockSearchOL.mockResolvedValueOnce("B001TEST02" as never);
+    mockSearchOLByIsbn.mockResolvedValueOnce({
+      coverId: 12345,
+      title: "Test Book",
+      authorName: ["Author"],
+    } as never);
+    mockSearchHC.mockResolvedValueOnce({
+      asin: "B001TEST02",
+      series: "The Test Series",
+      seriesPart: "3",
+    } as never);
+    mockLookupAudnexus.mockResolvedValueOnce({
+      asin: "B001TEST02",
+      title: "Test Book",
+      authors: [{ name: "Author" }],
+      narrators: [{ name: "Narrator Name" }],
+      image: "https://example.com/cover.jpg",
+      runtimeLengthMin: 600,
+    } as never);
 
-    const result = await deterministicSearch(bookSet, "Test Book", "Author", {
-      cache,
-      hardcoverApiKey: "test-hc",
-      outputDir,
-      dryRun: true,
-      outputMode: "local",
-      absUrl: "",
-      absApiToken: "",
-      absLibraryId: "",
-      localCover: null,
-    });
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
 
     expect(result.status).toBe("written");
     expect(cache.get("Test Book/Author")).toBe("B001TEST02");
+    expect(mockSearchOL).toHaveBeenCalled();
+    expect(mockSearchHC).toHaveBeenCalled();
   });
 
-  it("cache miss → fetchNextCandidate → fuzzy match fails → fallthrough", async () => {
-    const bookDir = path.join(tmpDir, "Author", "Test Book");
-    fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
+  it("OL succeeds, HC fails gracefully → writes output", async () => {
+    const bookSet = setupBook("Author/Test Book");
 
-    mockFetchNextCandidate.mockResolvedValueOnce({
-      metadata: {
-        title: "Completely Different Book",
-        author: "Other Author",
-        asin: "B001TEST03",
-      },
-      source: "open-library",
-    });
+    mockSearchOL.mockResolvedValueOnce("B001TEST03" as never);
+    mockSearchOLByIsbn.mockResolvedValueOnce({
+      coverId: 0,
+      title: "Test Book",
+      authorName: ["Author"],
+    } as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+    mockLookupAudnexus.mockResolvedValueOnce(null as never);
 
-    const result = await deterministicSearch(bookSet, "Test Book", "Author", {
-      cache,
-      hardcoverApiKey: "test-hc",
-      outputDir,
-      dryRun: true,
-      outputMode: "local",
-      absUrl: "",
-      absApiToken: "",
-      absLibraryId: "",
-      localCover: null,
-    });
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
+
+    expect(result.status).toBe("written");
+    expect(cache.get("Test Book/Author")).toBe("B001TEST03");
+  });
+
+  it("HC succeeds with ASIN, OL returns nothing → writes output", async () => {
+    const bookSet = setupBook("Author/Test Book");
+
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({
+      asin: "B001TEST04",
+      series: "Series Name",
+      seriesPart: "1",
+    } as never);
+    mockLookupAudnexus.mockResolvedValueOnce({
+      asin: "B001TEST04",
+      title: "Test Book",
+      authors: [{ name: "Author" }],
+      narrators: [],
+      image: null,
+      runtimeLengthMin: 0,
+    } as never);
+
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
+
+    expect(result.status).toBe("written");
+    expect(cache.get("Test Book/Author")).toBe("B001TEST04");
+  });
+
+  it("HC skipped when API key is not configured", async () => {
+    const bookSet = setupBook("Author/Test Book");
+
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockLookupAudnexus.mockResolvedValueOnce(null as never);
+
+    const config = makeBaseConfig();
+    config.hardcoverApiKey = "";
+
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", config);
+
+    expect(result.status).toBe("fallthrough");
+    expect(mockSearchHC).not.toHaveBeenCalled();
+  });
+
+  it("both providers fail → fallthrough", async () => {
+    const bookSet = setupBook("Author/Test Book");
+
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
 
     expect(result.status).toBe("fallthrough");
   });
 
-  it("cache miss → no provider results → fallthrough", async () => {
-    const bookDir = path.join(tmpDir, "Author", "Test Book");
-    fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
+  it("fuzzy match fails on Audnexus title → fallthrough", async () => {
+    const bookSet = setupBook("Author/Test Book");
 
-    mockFetchNextCandidate.mockResolvedValueOnce({
-      metadata: null,
-      source: "none",
-    });
+    mockSearchOL.mockResolvedValueOnce("B001TEST05" as never);
+    mockSearchOLByIsbn.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+    mockLookupAudnexus.mockResolvedValueOnce({
+      asin: "B001TEST05",
+      title: "Completely Different Book",
+      authors: [{ name: "Other Author" }],
+      narrators: [],
+      image: null,
+      runtimeLengthMin: 0,
+    } as never);
 
-    const result = await deterministicSearch(bookSet, "Test Book", "Author", {
-      cache,
-      hardcoverApiKey: "test-hc",
-      outputDir,
-      dryRun: true,
-      outputMode: "local",
-      absUrl: "",
-      absApiToken: "",
-      absLibraryId: "",
-      localCover: null,
-    });
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
 
     expect(result.status).toBe("fallthrough");
   });
 
   it("fuzzy match handles substring matches", async () => {
-    const bookDir = path.join(tmpDir, "Author", "Test");
-    fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
+    const bookSet = setupBook("Author/Test");
 
-    mockFetchNextCandidate.mockResolvedValueOnce({
-      metadata: {
-        title: "Test Book: Extended Edition",
-        author: "Author Name",
-        asin: "B001TEST04",
-      },
-      source: "hardcover",
-    });
+    mockSearchOL.mockResolvedValueOnce("B001TEST06" as never);
+    mockSearchOLByIsbn.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+    mockLookupAudnexus.mockResolvedValueOnce({
+      asin: "B001TEST06",
+      title: "Test Book: Extended Edition",
+      authors: [{ name: "Author Name" }],
+      narrators: [],
+      image: null,
+      runtimeLengthMin: 0,
+    } as never);
 
-    const result = await deterministicSearch(bookSet, "Test Book", "Author", {
-      cache,
-      hardcoverApiKey: "test-hc",
-      outputDir,
-      dryRun: true,
-      outputMode: "local",
-      absUrl: "",
-      absApiToken: "",
-      absLibraryId: "",
-      localCover: null,
-    });
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
 
     expect(result.status).toBe("written");
   });
 
   it("fuzzy match handles punctuation differences", async () => {
-    const bookDir = path.join(tmpDir, "Author", "Test");
-    fs.mkdirSync(bookDir, { recursive: true });
-    createTempFile(bookDir, "chapter.mp3");
-    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
+    const bookSet = setupBook("Author/Test");
 
-    mockFetchNextCandidate.mockResolvedValueOnce({
-      metadata: {
-        title: "Test, Book!",
-        author: "Author",
-        asin: "B001TEST05",
-      },
-      source: "open-library",
-    });
+    mockSearchOL.mockResolvedValueOnce("B001TEST07" as never);
+    mockSearchOLByIsbn.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+    mockLookupAudnexus.mockResolvedValueOnce({
+      asin: "B001TEST07",
+      title: "Test, Book!",
+      authors: [{ name: "Author" }],
+      narrators: [],
+      image: null,
+      runtimeLengthMin: 0,
+    } as never);
 
-    const result = await deterministicSearch(bookSet, "Test Book", "Author", {
-      cache,
-      hardcoverApiKey: "test-hc",
-      outputDir,
-      dryRun: true,
-      outputMode: "local",
-      absUrl: "",
-      absApiToken: "",
-      absLibraryId: "",
-      localCover: null,
-    });
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
 
     expect(result.status).toBe("written");
   });

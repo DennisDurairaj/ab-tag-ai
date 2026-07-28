@@ -1,10 +1,11 @@
-import type { BookSet, ResolvedMetadata } from "./types.js";
+import type { BookSet, ResolvedMetadata, BookIdentity } from "./types.js";
 import type { AsinCache } from "./providers/asin.js";
 import { lookupAudnexusBook } from "./providers/audnexus.js";
-import { fetchNextCandidate } from "./providers/metadata-resolver.js";
+import { searchOpenLibraryAsin, searchOpenLibraryByIsbn } from "./providers/open-library.js";
+import { searchHardcoverAsin } from "./providers/hardcover.js";
 import type { OrchestratorConfig, ToolContext, OrchestrationResult } from "./orchestrator.js";
 import { writeOutputForBook } from "./orchestrator.js";
-import { fuzzyMatch } from "./utils.js";
+import { fuzzyMatch, delay } from "./utils.js";
 
 export interface DeterministicSearchConfig {
   cache: AsinCache;
@@ -40,6 +41,7 @@ async function tryAudnexusEnrichment(
       durationMinutes: result.runtimeLengthMin,
     };
   }
+  await delay(600);
   return null;
 }
 
@@ -86,6 +88,58 @@ function writeResultToSearchResult(result: OrchestrationResult): DeterministicSe
   return { status: "fallthrough" };
 }
 
+async function parallelSearchAndMerge(
+  identity: BookIdentity,
+  hardcoverApiKey: string,
+  resolvedAuthor: string,
+  fetchFn?: typeof fetch,
+): Promise<ResolvedMetadata | null> {
+  const [olAsin, hcResult] = await Promise.all([
+    searchOpenLibraryAsin(identity, fetchFn),
+    hardcoverApiKey
+      ? searchHardcoverAsin(identity, hardcoverApiKey, fetchFn)
+      : Promise.resolve({ asin: null }),
+  ]);
+
+  if (hardcoverApiKey) {
+    await delay(1000);
+  }
+
+  let asin: string | null = null;
+  let coverId: number | undefined;
+  let series: string | undefined;
+  let seriesPart: string | undefined;
+
+  if (olAsin) {
+    asin = olAsin;
+    const olBook = await searchOpenLibraryByIsbn(olAsin, fetchFn);
+    if (olBook?.coverId && olBook.coverId > 0) {
+      coverId = olBook.coverId;
+    }
+  }
+
+  if (hcResult.asin) {
+    if (!asin) asin = hcResult.asin;
+    if (hcResult.series) series = hcResult.series;
+    if (hcResult.seriesPart) seriesPart = hcResult.seriesPart;
+  }
+
+  if (!asin) return null;
+
+  const enriched = await tryAudnexusEnrichment(asin, resolvedAuthor, fetchFn);
+  const metadata: ResolvedMetadata = enriched ?? {
+    title: identity.title,
+    author: identity.author,
+    asin,
+  };
+
+  if (series) metadata.series = series;
+  if (seriesPart) metadata.seriesPart = seriesPart;
+  if (coverId) metadata.coverId = coverId;
+
+  return metadata;
+}
+
 export async function deterministicSearch(
   bookSet: BookSet,
   resolvedTitle: string,
@@ -111,34 +165,33 @@ export async function deterministicSearch(
     return writeResultToSearchResult(result.terminal);
   }
 
-  console.error(`  [Deterministic] Cache miss — searching providers for "${resolvedTitle}" by ${resolvedAuthor}`);
+  console.error(`  [Deterministic] Cache miss — searching OL + HC in parallel for "${resolvedTitle}" by ${resolvedAuthor}`);
 
-  const result = await fetchNextCandidate({
-    identity: { title: resolvedTitle, author: resolvedAuthor },
-    asin: null,
-    hardcoverApiKey: config.hardcoverApiKey,
-    skipProviders: [],
+  const metadata = await parallelSearchAndMerge(
+    { title: resolvedTitle, author: resolvedAuthor },
+    config.hardcoverApiKey,
+    resolvedAuthor,
     fetchFn,
-  });
+  );
 
-  if (!result.metadata) {
-    console.error(`  [Deterministic] No provider results — falling through to orchestrator`);
+  if (!metadata) {
+    console.error(`  [Deterministic] No ASIN from providers — falling through to orchestrator`);
     return { status: "fallthrough" };
   }
 
-  const titleMatch = fuzzyMatch(resolvedTitle, result.metadata.title);
-  const authorMatch = fuzzyMatch(resolvedAuthor, result.metadata.author);
+  const titleMatch = fuzzyMatch(resolvedTitle, metadata.title);
+  const authorMatch = fuzzyMatch(resolvedAuthor, metadata.author);
 
   if (!titleMatch || !authorMatch) {
     console.error(`  [Deterministic] Fuzzy match failed (title: ${titleMatch}, author: ${authorMatch}) — falling through to orchestrator`);
     return { status: "fallthrough" };
   }
 
-  console.error(`  [Deterministic] Match found via ${result.source} — writing output directly`);
+  console.error(`  [Deterministic] Match found — writing output directly`);
 
-  config.cache.set(key, result.metadata.asin);
+  config.cache.set(key, metadata.asin);
 
   const ctx = toToolContext(bookSet, config);
-  const writeResult = await writeOutputForBook(result.metadata, ctx);
+  const writeResult = await writeOutputForBook(metadata, ctx);
   return writeResultToSearchResult(writeResult.terminal);
 }
