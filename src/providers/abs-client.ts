@@ -13,18 +13,23 @@ export interface AbsUploadResult {
 }
 
 export interface AbsSearchItem {
-  id: string;
-  media: {
-    metadata: {
-      title?: string;
-      author?: string;
-      series?: string;
+  libraryItem: {
+    id: string;
+    media: {
+      metadata: {
+        title?: string;
+        author?: string;
+        authorName?: string;
+        series?: Array<{ name: string }>;
+        seriesName?: string;
+        asin?: string;
+      };
     };
   };
 }
 
 export interface AbsSearchResult {
-  libraryItems: AbsSearchItem[];
+  book: AbsSearchItem[];
 }
 
 export interface AbsMediaUpdatePayload {
@@ -46,6 +51,17 @@ export interface AbsMatchPayload {
 
 export interface AbsMatchResult {
   updated: boolean;
+}
+
+export interface AbsLibraryFolder {
+  id: string;
+  fullPath: string;
+}
+
+export interface AbsLibraryInfo {
+  id: string;
+  name: string;
+  folders: AbsLibraryFolder[];
 }
 
 export class AbsAuthError extends Error {
@@ -80,6 +96,11 @@ export class AbsRateLimitError extends Error {
 }
 
 export interface AbsClient {
+  getLibrary(params: {
+    libraryId: string;
+    fetchFn?: typeof fetch;
+  }): Promise<AbsLibraryInfo>;
+
   uploadFiles(params: {
     libraryId: string;
     folderId: string;
@@ -90,6 +111,11 @@ export interface AbsClient {
     fileNames?: string[];
     fetchFn?: typeof fetch;
   }): Promise<AbsUploadResult>;
+
+  scanLibrary(params: {
+    libraryId: string;
+    fetchFn?: typeof fetch;
+  }): Promise<void>;
 
   searchLibrary(params: {
     libraryId: string;
@@ -147,9 +173,20 @@ export function createAbsClient(config: AbsClientConfig): AbsClient {
   const baseUrl = stripTrailingSlash(config.url);
 
   return {
+    async getLibrary({ libraryId, fetchFn = fetch }) {
+      const response = await fetchFn(
+        `${baseUrl}/api/libraries/${encodeURIComponent(libraryId)}`,
+        { headers: authHeaders(config.apiToken) },
+      );
+
+      await checkResponse(response);
+      return (await response.json()) as AbsLibraryInfo;
+    },
+
     async uploadFiles({ libraryId, folderId, title, author, series, files, fileNames, fetchFn = fetch }) {
-      const params = new URLSearchParams({ library: libraryId, folder: folderId });
       const formData = new FormData();
+      formData.append("library", libraryId);
+      formData.append("folder", folderId);
       formData.append("title", title);
       formData.append("author", author);
       if (series) formData.append("series", series);
@@ -157,17 +194,39 @@ export function createAbsClient(config: AbsClientConfig): AbsClient {
       for (let i = 0; i < files.length; i++) {
         const buffer = await fs.promises.readFile(files[i]);
         const name = fileNames?.[i] ?? path.basename(files[i]);
-        formData.append("files", new File([buffer], name));
+        formData.append(String(i), new File([buffer], name));
       }
 
-      const response = await fetchFn(`${baseUrl}/api/upload?${params.toString()}`, {
+      const response = await fetchFn(`${baseUrl}/api/upload`, {
         method: "POST",
         headers: authHeaders(config.apiToken),
         body: formData,
       });
 
       await checkResponse(response);
-      return (await response.json()) as AbsUploadResult;
+
+      // The ABS upload endpoint returns 200 with an empty body on success.
+      // No IDs are returned — we must poll/lookup the item after upload.
+      return { id: "", libraryItemId: "" };
+    },
+
+    async scanLibrary({ libraryId, fetchFn = fetch }) {
+      const response = await fetchFn(
+        `${baseUrl}/api/libraries/${encodeURIComponent(libraryId)}/scan`,
+        {
+          method: "POST",
+          headers: authHeaders(config.apiToken),
+        },
+      );
+
+      // scan returns 200 even if already scanning; 404 if library not found
+      if (response.status === 404) {
+        throw new AbsNotFoundError(`Library ${libraryId} not found`);
+      }
+
+      if (!response.ok) {
+        await checkResponse(response);
+      }
     },
 
     async searchLibrary({ libraryId, query, fetchFn = fetch }) {

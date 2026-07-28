@@ -11,7 +11,7 @@ import { tagMultiFileSet, assignTrackNumbers } from "./taggers/index.js";
 import type { AsinCache } from "./providers/asin.js";
 import { flagForReview } from "./agent.js";
 import { createAbsClient, AbsServerError, AbsAuthError, AbsNotFoundError, AbsRateLimitError } from "./providers/abs-client.js";
-import type { AbsClient } from "./providers/abs-client.js";
+import type { AbsClient, AbsSearchResult } from "./providers/abs-client.js";
 
 interface OrchestratorConfig {
   model: string;
@@ -523,12 +523,20 @@ interface AbsUploadOptions {
   coverArt: Buffer | null;
 }
 
+function getAuthorFromMeta(meta: Record<string, unknown>): string {
+  return String(meta.authorName || meta.author || "");
+}
+
+function getTitleFromMeta(meta: Record<string, unknown>): string {
+  return String(meta.title || "");
+}
+
 async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: string; terminal: TerminalResult }> {
   const { ctx, fetchFn, absClient, title, author, asin, series, seriesPart, coverArt } = options;
   const libraryId = ctx.config.absLibraryId;
   const fallback = (reason: string) => executeLocalFallback(ctx, author, title, series, coverArt, reason);
 
-  let searchResult: { libraryItems: Array<{ id: string; media: { metadata: { title?: string; author?: string; series?: string } } }> };
+  let searchResult: AbsSearchResult;
   try {
     searchResult = await withRetry("search ASIN", () => absClient.searchLibrary({ libraryId, query: asin, fetchFn }));
   } catch (err) {
@@ -536,7 +544,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     return fallback(`Search error (${errorLabel(err)})`);
   }
 
-  if (searchResult.libraryItems.length > 0) {
+  if (searchResult.book.length > 0) {
     return {
       content: plainResult(`Skipped: ASIN ${asin} already exists in library "${title}"`),
       terminal: { status: "skipped", outputDir: `abs:${libraryId}`, reason: `Duplicate ASIN ${asin}: "${title}"` },
@@ -550,10 +558,10 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     return fallback(`Search error (${errorLabel(err)})`);
   }
 
-  const duplicate = searchResult.libraryItems.find((item) => {
-    const meta = item.media?.metadata || {};
-    const itemAuthor = meta.author || "";
-    const itemTitle = meta.title || "";
+  const duplicate = searchResult.book.find((item) => {
+    const meta = item.libraryItem?.media?.metadata || {};
+    const itemAuthor = getAuthorFromMeta(meta);
+    const itemTitle = getTitleFromMeta(meta);
     return normalizeText(itemAuthor) === normalizeText(author) && fuzzyMatch(itemTitle, title);
   });
   if (duplicate) {
@@ -569,11 +577,22 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     filename: `${String(file.trackNumber).padStart(2, "0")} - ${path.basename(file.path)}`,
   }));
 
-  let uploadResult: { id: string; libraryItemId: string };
+  // Look up the library's folder ID for upload
+  let folderId = libraryId;
   try {
-    uploadResult = await withRetry("upload", () => absClient.uploadFiles({
+    const libInfo = await withRetry("get library", () => absClient.getLibrary({ libraryId, fetchFn }));
+    if (libInfo.folders && libInfo.folders.length > 0) {
+      folderId = libInfo.folders[0].id;
+    }
+  } catch (err) {
+    console.error(`  [ABS] Failed to get library info: ${errorLabel(err)} — falling back to local`);
+    return fallback(`Library lookup failed (${errorLabel(err)})`);
+  }
+
+  try {
+    await withRetry("upload", () => absClient.uploadFiles({
       libraryId,
-      folderId: libraryId,
+      folderId,
       title,
       author,
       series,
@@ -586,37 +605,47 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     return fallback(`Upload failed (${errorLabel(err)})`);
   }
 
-  const uploadId = uploadResult.id || uploadResult.libraryItemId;
-  let itemId = uploadResult.libraryItemId;
+  // Trigger library scan so uploaded files are indexed
+  try {
+    await withRetry("scan", () => absClient.scanLibrary({ libraryId, fetchFn }));
+  } catch {
+    // scan failure is non-critical — the library watcher may pick up files anyway
+  }
+
+  // Poll until the uploaded item appears in search results by title+author
+  const pollDelays = [2000, 3000, 4000, 5000, 6000];
+  const pollStart = Date.now();
+  let itemId = "";
+
+  for (const delay of pollDelays) {
+    const elapsed = Date.now() - pollStart;
+    if (elapsed > 25000) break;
+
+    await new Promise((r) => setTimeout(r, delay));
+
+    try {
+      const pollResult = await withRetry("poll", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
+      if (pollResult.book.length === 0) {
+        console.error(`  [ABS] Poll: no books found for "${title}" (delay ${delay}ms)`);
+      }
+      const match = pollResult.book.find((item) => {
+        const meta = item.libraryItem?.media?.metadata || {};
+        const itemTitle = getTitleFromMeta(meta);
+        const itemAuthor = getAuthorFromMeta(meta);
+        return fuzzyMatch(itemTitle, title) && normalizeText(itemAuthor) === normalizeText(author);
+      });
+      if (match) {
+        itemId = match.libraryItem.id;
+        break;
+      }
+    } catch {
+      continue;
+    }
+  }
 
   if (!itemId) {
-    const pollDelays = [1000, 2000, 4000, 3000];
-    const pollStart = Date.now();
-    let found = false;
-
-    for (const delay of pollDelays) {
-      const elapsed = Date.now() - pollStart;
-      if (elapsed > 10000) break;
-
-      await new Promise((r) => setTimeout(r, delay));
-
-      try {
-        const pollResult = await withRetry("poll", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
-        const match = pollResult.libraryItems.find((item) => item.id === uploadId || item.id === itemId);
-        if (match) {
-          itemId = match.id;
-          found = true;
-          break;
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    if (!found) {
-      console.error(`  [ABS] Could not discover item ID after upload — falling back to local`);
-      return fallback("Item ID not discovered after upload");
-    }
+    console.error(`  [ABS] Could not discover item ID after upload — falling back to local`);
+    return fallback("Item ID not discovered after upload");
   }
 
   let coverUploadOk = false;
@@ -661,7 +690,7 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     console.error(`  [ABS] Provider match failed for item ${itemId}`);
   }
 
-  let verifyResult: { libraryItems: Array<{ id: string; media: { metadata: { title?: string; author?: string; series?: string } } }> };
+  let verifyResult: AbsSearchResult;
   try {
     verifyResult = await withRetry("verify", () => absClient.searchLibrary({ libraryId, query: asin, fetchFn }));
   } catch {
@@ -672,11 +701,11 @@ async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: s
     };
   }
 
-  const verifyItem = verifyResult.libraryItems.find((item) => item.id === itemId);
+  const verifyItem = verifyResult.book.find((item) => item.libraryItem.id === itemId);
   if (verifyItem) {
-    const verifyMeta = verifyItem.media?.metadata || {};
-    const absAuthor = verifyMeta.author || "";
-    const absTitle = verifyMeta.title || "";
+    const verifyMeta = verifyItem.libraryItem?.media?.metadata || {};
+    const absAuthor = getAuthorFromMeta(verifyMeta);
+    const absTitle = getTitleFromMeta(verifyMeta);
 
     const authorOk = normalizeText(absAuthor) === normalizeText(author);
     const titleOk = fuzzyMatch(absTitle, title);

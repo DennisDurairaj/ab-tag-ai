@@ -225,69 +225,84 @@ describe("orchestrateBook — ABS upload flow", () => {
   }
 
   it("trust path: LLM writes to ABS, upload succeeds, returns written", async () => {
-    const bookDir = path.join(tmpDir, ABS_ALBUM_PATH);
-    fs.mkdirSync(bookDir, { recursive: true });
-    const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
-    const bookSet = mkBookSet([mkFile(sourcePath)]);
+    const origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => { fn(); return 0 as unknown as NodeJS.Timeout; }) as typeof setTimeout;
+    try {
+      const bookDir = path.join(tmpDir, ABS_ALBUM_PATH);
+      fs.mkdirSync(bookDir, { recursive: true });
+      const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
+      const bookSet = mkBookSet([mkFile(sourcePath)]);
 
-    let searchCallCount = 0;
-    const fakeFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = input.toString();
+      let searchCallCount = 0;
+      const fakeFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+        const url = input.toString();
 
-      if (url.includes("/chat/completions")) {
-        return { ok: true, json: () => mockChatResponse(null, [
-          { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
-        ]) };
+        if (url.includes("/chat/completions")) {
+          return { ok: true, json: () => mockChatResponse(null, [
+            { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
+          ]) };
+        }
+
+        // getLibrary: GET /api/libraries/{id} (not search, not scan)
+        if (url.match(/\/api\/libraries\/[^/]+\/?$/) && !url.includes("/search") && !url.includes("/scan")) {
+          return { ok: true, json: () => ({ id: "lib-1", folders: [{ id: "folder-1", fullPath: "/audiobooks" }] }) };
+        }
+
+        if (url.includes("/api/libraries/lib-1/search")) {
+          searchCallCount++;
+          if (searchCallCount <= 2) return { ok: true, json: () => ({ book: [] }) };
+          return { ok: true, json: () => ({
+            book: [
+              { libraryItem: { id: "item-1", media: { metadata: { title: "Test Book", authorName: "Author" } } } },
+            ],
+          }) };
+        }
+
+        if (url.includes("/api/libraries/lib-1/scan")) {
+          return { ok: true, status: 200 };
+        }
+
+        if (url.includes("/api/upload")) {
+          return { ok: true, json: () => ({}) };
+        }
+
+        if (url.includes("/api/items/item-1/cover")) {
+          return { ok: true, status: 200 };
+        }
+
+        if (url.includes("/api/items/item-1/media")) {
+          return { ok: true, status: 200 };
+        }
+
+        if (url.includes("/api/items/item-1/match")) {
+          return { ok: true, json: () => ({ updated: true }) };
+        }
+
+        return { ok: false, status: 404 };
+      });
+
+      const orchestrate = createOrchestrator({
+        model: "test-model",
+        apiKey: "test-key",
+        hardcoverApiKey: "test-hc-key",
+        outputDir,
+        dryRun: false,
+        fetchFn: fakeFetch as unknown as typeof fetch,
+        cache,
+        outputMode: "audiobookshelf",
+        absUrl: ABS_URL,
+        absApiToken: "abs-token",
+        absLibraryId: ABS_LIBRARY_ID,
+      });
+
+      const result = await orchestrate(bookSet);
+      expect(result.status).toBe("written");
+      if (result.status === "written") {
+        expect(result.outputDir).toContain("abs://");
+        expect(result.filesWritten).toBe(1);
       }
-
-      if (url.includes("/api/libraries/lib-1/search")) {
-        searchCallCount++;
-        if (searchCallCount <= 2) return { ok: true, json: () => ({ libraryItems: [] }) };
-        return { ok: true, json: () => ({
-          libraryItems: [
-            { id: "item-1", media: { metadata: { title: "Test Book", author: "Author" } } },
-          ],
-        }) };
-      }
-
-      if (url.includes("/api/upload")) {
-        return { ok: true, json: () => ({ id: "upload-1", libraryItemId: "item-1" }) };
-      }
-
-      if (url.includes("/api/items/item-1/cover")) {
-        return { ok: true, status: 200 };
-      }
-
-      if (url.includes("/api/items/item-1/media")) {
-        return { ok: true, status: 200 };
-      }
-
-      if (url.includes("/api/items/item-1/match")) {
-        return { ok: true, json: () => ({ updated: true }) };
-      }
-
-      return { ok: false, status: 404 };
-    });
-
-    const orchestrate = createOrchestrator({
-      model: "test-model",
-      apiKey: "test-key",
-      hardcoverApiKey: "test-hc-key",
-      outputDir,
-      dryRun: false,
-      fetchFn: fakeFetch as unknown as typeof fetch,
-      cache,
-      outputMode: "audiobookshelf",
-      absUrl: ABS_URL,
-      absApiToken: "abs-token",
-      absLibraryId: ABS_LIBRARY_ID,
-    });
-
-    const result = await orchestrate(bookSet);
-    expect(result.status).toBe("written");
-    if (result.status === "written") {
-      expect(result.outputDir).toContain("abs://");
-      expect(result.filesWritten).toBe(1);
+    } finally {
+      globalThis.setTimeout = origSetTimeout;
     }
   });
 
@@ -310,8 +325,8 @@ describe("orchestrateBook — ABS upload flow", () => {
 
       if (url.includes("/api/libraries/lib-1/search")) {
         return { ok: true, json: () => ({
-          libraryItems: [
-            { id: "existing-1", media: { metadata: { title: "Test Book", author: "Author" } } },
+          book: [
+{ libraryItem: { id: "existing-1", media: { metadata: { title: "Test Book", authorName: "Author" } } } },
           ],
         }) };
       }
@@ -341,49 +356,71 @@ describe("orchestrateBook — ABS upload flow", () => {
   });
 
   it("verify-mismatch flag path: upload succeeds but verify finds wrong metadata", async () => {
-    const bookDir = path.join(tmpDir, ABS_ALBUM_PATH);
-    fs.mkdirSync(bookDir, { recursive: true });
-    const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
-    const bookSet = mkBookSet([mkFile(sourcePath)]);
+    const origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => { fn(); return 0 as unknown as NodeJS.Timeout; }) as typeof setTimeout;
+    try {
+      const bookDir = path.join(tmpDir, ABS_ALBUM_PATH);
+      fs.mkdirSync(bookDir, { recursive: true });
+      const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
+      const bookSet = mkBookSet([mkFile(sourcePath)]);
 
-    let call = 0;
-    const fakeFetch = vi.fn(async (input: string | URL) => {
-      const url = input.toString();
-      call++;
+      let searchCall = 0;
+      const fakeFetch = vi.fn(async (input: string | URL) => {
+        const url = input.toString();
 
-      if (url.includes("/chat/completions")) {
-        return { ok: true, json: () => mockChatResponse(null, [
-          { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
-        ]) };
-      }
+        if (url.includes("/chat/completions")) {
+          return { ok: true, json: () => mockChatResponse(null, [
+            { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
+          ]) };
+        }
 
-      if (url.includes("/api/libraries/lib-1/search")) {
-        if (call <= 2) return { ok: true, json: () => ({ libraryItems: [] }) };
-        return { ok: true, json: () => ({
-          libraryItems: [
-            { id: "item-1", media: { metadata: { title: "Wrong Title", author: "Wrong Author" } } },
-          ],
-        }) };
-      }
+        // getLibrary mock
+        if (url.match(/\/api\/libraries\/[^/]+\/?$/) && !url.includes("/search") && !url.includes("/scan")) {
+          return { ok: true, json: () => ({ id: "lib-1", folders: [{ id: "folder-1", fullPath: "/audiobooks" }] }) };
+        }
 
-      if (url.includes("/api/upload")) {
-        return { ok: true, json: () => ({ id: "upload-1", libraryItemId: "item-1" }) };
-      }
+        if (url.includes("/api/libraries/lib-1/search")) {
+          searchCall++;
+          // Duplicate checks (ASIN then title): return empty
+          if (searchCall <= 2) return { ok: true, json: () => ({ book: [] }) };
+          // Poll (search by title): return correct match
+          if (searchCall === 3) {
+            return { ok: true, json: () => ({
+              book: [
+                { libraryItem: { id: "item-1", media: { metadata: { title: "Test Book", authorName: "Author" } } } },
+              ],
+            }) };
+          }
+          // Verify (search by ASIN): return wrong metadata
+          return { ok: true, json: () => ({
+            book: [
+{ libraryItem: { id: "item-1", media: { metadata: { title: "Wrong Title", authorName: "Wrong Author" } } } },
+            ],
+          }) };
+        }
 
-      if (url.includes("/api/items/item-1/cover")) {
-        return { ok: false, status: 500 };
-      }
+        if (url.includes("/api/libraries/lib-1/scan")) {
+          return { ok: true, status: 200 };
+        }
 
-      if (url.includes("/api/items/item-1/media")) {
-        return { ok: true, status: 200 };
-      }
+        if (url.includes("/api/upload")) {
+          return { ok: true, json: () => ({}) };
+        }
 
-      if (url.includes("/api/items/item-1/match")) {
-        return { ok: true, json: () => ({ updated: true }) };
-      }
+        if (url.includes("/api/items/item-1/cover")) {
+          return { ok: false, status: 500 };
+        }
 
-      return { ok: false, status: 404 };
-    });
+        if (url.includes("/api/items/item-1/media")) {
+          return { ok: true, status: 200 };
+        }
+
+        if (url.includes("/api/items/item-1/match")) {
+          return { ok: true, json: () => ({ updated: true }) };
+        }
+
+        return { ok: false, status: 404 };
+      });
 
     const orchestrate = createOrchestrator({
       model: "test-model",
@@ -406,37 +443,42 @@ describe("orchestrateBook — ABS upload flow", () => {
       expect(result.reason).toContain("Wrong Title");
       expect(result.reason).toContain("Wrong Author");
     }
+    } finally {
+      globalThis.setTimeout = origSetTimeout;
+    }
   });
 
   it("non-retryable immediate fallback: upload gets 401, falls back to local", async () => {
-    const bookDir = path.join(tmpDir, ABS_ALBUM_PATH);
-    fs.mkdirSync(bookDir, { recursive: true });
-    const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
-    const bookSet = mkBookSet([mkFile(sourcePath)]);
-
-    let searchCallCount = 0;
-    let uploadCalls = 0;
-    const fakeFetch = vi.fn(async (input: string | URL) => {
-      const url = input.toString();
-
-      if (url.includes("/chat/completions")) {
-        return { ok: true, json: () => mockChatResponse(null, [
-          { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
-        ]) };
-      }
-
-      if (url.includes("/api/libraries/lib-1/search")) {
-        searchCallCount++;
-        return { ok: true, json: () => ({ libraryItems: [] }) };
-      }
-
-      if (url.includes("/api/upload")) {
-        uploadCalls++;
-        return { ok: false, status: 401, text: async () => "Unauthorized" };
-      }
-
-      return { ok: false, status: 404 };
-    });
+    const origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => { fn(); return 0 as unknown as NodeJS.Timeout; }) as typeof setTimeout;
+    try {
+      const bookDir = path.join(tmpDir, ABS_ALBUM_PATH);
+      fs.mkdirSync(bookDir, { recursive: true });
+      const sourcePath = createDummyMp3(bookDir, "ch01.mp3");
+      const bookSet = mkBookSet([mkFile(sourcePath)]);
+      let searchCallCount = 0;
+      let uploadCalls = 0;
+      const fakeFetch = vi.fn(async (input: string | URL) => {
+        const url = input.toString();
+        if (url.includes("/chat/completions")) {
+          return { ok: true, json: () => mockChatResponse(null, [
+            { id: "call_1", name: "write_output", args: { title: "Test Book", author: "Author", asin: "B000000001" } },
+          ]) };
+        }
+        // getLibrary mock
+        if (url.match(/\/api\/libraries\/[^/]+\/?$/) && !url.includes("/search") && !url.includes("/scan")) {
+          return { ok: true, json: () => ({ id: "lib-1", folders: [{ id: "folder-1", fullPath: "/audiobooks" }] }) };
+        }
+        if (url.includes("/api/libraries/lib-1/search")) {
+          searchCallCount++;
+          return { ok: true, json: () => ({ book: [] }) };
+        }
+        if (url.includes("/api/upload")) {
+          uploadCalls++;
+          return { ok: false, status: 401, text: async () => "Unauthorized" };
+        }
+        return { ok: false, status: 404 };
+      });
 
     const orchestrate = createOrchestrator({
       model: "test-model",
@@ -461,6 +503,9 @@ describe("orchestrateBook — ABS upload flow", () => {
       expect(result.fallbackReason).toContain("401 Unauthorized");
     }
     expect(uploadCalls).toBe(1); // no retries for non-retryable
+    } finally {
+      globalThis.setTimeout = origSetTimeout;
+    }
   });
 
   it("retry+success path: upload fails twice with 500, succeeds on retry 3", async () => {
@@ -483,9 +528,23 @@ describe("orchestrateBook — ABS upload flow", () => {
           ]) };
         }
 
+        // getLibrary mock
+        if (url.match(/\/api\/libraries\/[^/]+\/?$/) && !url.includes("/search") && !url.includes("/scan")) {
+          return { ok: true, json: () => ({ id: "lib-1", folders: [{ id: "folder-1", fullPath: "/audiobooks" }] }) };
+        }
+
         if (url.includes("/api/libraries/lib-1/search")) {
           searchCallCount++;
-          return { ok: true, json: () => ({ libraryItems: [] }) };
+          if (searchCallCount <= 2) return { ok: true, json: () => ({ book: [] }) };
+          return { ok: true, json: () => ({
+            book: [
+              { libraryItem: { id: "item-1", media: { metadata: { title: "Test Book", authorName: "Author" } } } },
+            ],
+          }) };
+        }
+
+        if (url.includes("/api/libraries/lib-1/scan")) {
+          return { ok: true, status: 200 };
         }
 
         if (url.includes("/api/upload")) {
@@ -493,7 +552,7 @@ describe("orchestrateBook — ABS upload flow", () => {
           if (uploadCalls < 3) {
             return { ok: false, status: 500, text: async () => "Server error" };
           }
-          return { ok: true, json: () => ({ id: "upload-1", libraryItemId: "item-1" }) };
+          return { ok: true, json: () => ({}) };
         }
 
         if (url.includes("/api/items/item-1/cover")) {
@@ -556,9 +615,14 @@ describe("orchestrateBook — ABS upload flow", () => {
           ]) };
         }
 
+        // getLibrary mock
+        if (url.match(/\/api\/libraries\/[^/]+\/?$/) && !url.includes("/search") && !url.includes("/scan")) {
+          return { ok: true, json: () => ({ id: "lib-1", folders: [{ id: "folder-1", fullPath: "/audiobooks" }] }) };
+        }
+
         if (url.includes("/api/libraries/lib-1/search")) {
           searchCallCount++;
-          return { ok: true, json: () => ({ libraryItems: [] }) };
+          return { ok: true, json: () => ({ book: [] }) };
         }
 
         if (url.includes("/api/upload")) {
@@ -597,3 +661,4 @@ describe("orchestrateBook — ABS upload flow", () => {
     }
   });
 });
+

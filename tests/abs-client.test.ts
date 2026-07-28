@@ -45,17 +45,16 @@ describe("createAbsClient — uploadFiles", () => {
     return filePath;
   }
 
-  it("uploads files with multipart body and returns result", async () => {
+  it("uploads files with multipart body and returns empty result (ABS returns no IDs)", async () => {
     const file1 = createTempFile("ch01.mp3");
     const file2 = createTempFile("ch02.mp3");
 
     const mockFetch = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toContain("/api/upload");
-      expect(url).toContain("library=lib-001");
-      expect(url).toContain("folder=folder-1");
+      expect(url).not.toContain("library="); // library is in form body, not query
       expect(init?.method).toBe("POST");
       expect(init?.headers).toBeDefined();
-      return makeMockResponse(200, { id: "upload-123", libraryItemId: "item-456" });
+      return makeMockResponse(200, {});
     });
 
     const client = makeClient();
@@ -68,15 +67,16 @@ describe("createAbsClient — uploadFiles", () => {
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
-    expect(result.id).toBe("upload-123");
-    expect(result.libraryItemId).toBe("item-456");
+    // ABS upload returns 200 with empty body — no IDs
+    expect(result.id).toBe("");
+    expect(result.libraryItemId).toBe("");
   });
 
   it("includes series in form data when provided", async () => {
     const file1 = createTempFile("ch01.mp3");
 
     const mockFetch = vi.fn(async () => {
-      return makeMockResponse(200, { id: "upload-1", libraryItemId: "item-1" });
+      return makeMockResponse(200, {});
     });
 
     const client = makeClient();
@@ -150,7 +150,7 @@ describe("createAbsClient — uploadFiles", () => {
 
     const mockFetch = vi.fn(async (url: string) => {
       capturedUrl = url.toString();
-      return makeMockResponse(200, { id: "u", libraryItemId: "l" });
+      return makeMockResponse(200, {});
     });
 
     const client = createAbsClient({
@@ -169,7 +169,34 @@ describe("createAbsClient — uploadFiles", () => {
     });
 
     expect(capturedUrl).not.toContain("//api");
-    expect(capturedUrl).toBe("https://abs.example.com/api/upload?library=lib&folder=f");
+    expect(capturedUrl).toBe("https://abs.example.com/api/upload");
+  });
+});
+
+describe("createAbsClient — scanLibrary", () => {
+  it("POSTs scan request and succeeds on 200", async () => {
+    const mockFetch = vi.fn(async (url: string) => {
+      expect(url).toContain("/api/libraries/lib-001/scan");
+      return makeMockResponse(200, {});
+    });
+
+    const client = makeClient();
+    await client.scanLibrary({
+      libraryId: "lib-001",
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+  });
+
+  it("throws AbsNotFoundError on 404", async () => {
+    const mockFetch = vi.fn(async () => makeMockResponse(404, "Library not found"));
+
+    const client = makeClient();
+    await expect(
+      client.scanLibrary({
+        libraryId: "nonexistent",
+        fetchFn: mockFetch as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(AbsNotFoundError);
   });
 });
 
@@ -179,8 +206,8 @@ describe("createAbsClient — searchLibrary", () => {
       expect(url).toContain("/api/libraries/lib-001/search");
       expect(url).toContain("q=test+query");
       return makeMockResponse(200, {
-        libraryItems: [
-          { id: "item-1", media: { metadata: { title: "Test Book", author: "Test Author" } } },
+        book: [
+          { libraryItem: { id: "item-1", media: { metadata: { title: "Test Book", authorName: "Test Author" } } } },
         ],
       });
     });
@@ -192,9 +219,9 @@ describe("createAbsClient — searchLibrary", () => {
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
-    expect(result.libraryItems).toHaveLength(1);
-    expect(result.libraryItems[0].id).toBe("item-1");
-    expect(result.libraryItems[0].media.metadata.title).toBe("Test Book");
+    expect(result.book).toHaveLength(1);
+    expect(result.book[0].libraryItem.id).toBe("item-1");
+    expect(result.book[0].libraryItem.media.metadata.title).toBe("Test Book");
   });
 
   it("throws AbsAuthError on 401", async () => {
