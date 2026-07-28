@@ -2,6 +2,7 @@ input: /path/to/audiobooks
 output: /path/to/output
 hardcover_api_key: ""
 dry_run: false
+output_mode: local             # "local" or "audiobookshelf"
 llm_model: "deepseek-v4-flash-free"
 llm_api_key: ""
 llm_api_base_url: "https://opencode.ai/zen/v1"
@@ -10,3 +11,8 @@ include:
   # - "Peters, Elizabeth"
   # - "Riordan, Rick"
 log_level: info
+
+# Audiobookshelf output mode
+# abs_url: ""
+# abs_api_token: ""
+# abs_library_id: ""
