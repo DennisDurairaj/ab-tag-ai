@@ -23,7 +23,7 @@ export interface DeterministicSearchConfig {
 export type DeterministicSearchResult =
   | { status: "written"; outputDir: string; filesWritten: number; fallbackReason?: string }
   | { status: "skipped"; outputDir: string; reason: string }
-  | { status: "fallthrough" };
+  | { status: "fallthrough"; metadata: ResolvedMetadata | null; title: string; author: string; reason: string };
 
 async function tryAudnexusEnrichment(
   asin: string,
@@ -69,7 +69,10 @@ function toToolContext(bookSet: BookSet, config: DeterministicSearchConfig): Too
   };
 }
 
-function writeResultToSearchResult(result: OrchestrationResult): DeterministicSearchResult {
+function writeResultToSearchResult(
+  result: OrchestrationResult,
+  fallthroughMeta?: { metadata: ResolvedMetadata; title: string; author: string; reason: string },
+): DeterministicSearchResult {
   if (result.status === "written") {
     return {
       status: "written",
@@ -85,7 +88,10 @@ function writeResultToSearchResult(result: OrchestrationResult): DeterministicSe
       reason: result.reason,
     };
   }
-  return { status: "fallthrough" };
+  if (fallthroughMeta) {
+    return { status: "fallthrough", ...fallthroughMeta };
+  }
+  return { status: "fallthrough", metadata: null, title: "", author: "", reason: "Output flagged" };
 }
 
 async function parallelSearchAndMerge(
@@ -162,7 +168,10 @@ export async function deterministicSearch(
 
     const ctx = toToolContext(bookSet, config);
     const result = await writeOutputForBook(metadata, ctx);
-    return writeResultToSearchResult(result.terminal);
+    return writeResultToSearchResult(result.terminal, {
+      metadata, title: resolvedTitle, author: resolvedAuthor,
+      reason: "Cache hit write_output returned flagged",
+    });
   }
 
   console.error(`  [Deterministic] Cache miss — searching OL + HC in parallel for "${resolvedTitle}" by ${resolvedAuthor}`);
@@ -175,16 +184,20 @@ export async function deterministicSearch(
   );
 
   if (!metadata) {
-    console.error(`  [Deterministic] No ASIN from providers — falling through to orchestrator`);
-    return { status: "fallthrough" };
+    console.error(`  [Deterministic] No ASIN from providers — falling through to verifier`);
+    return { status: "fallthrough", metadata: null, title: resolvedTitle, author: resolvedAuthor, reason: "No ASIN found from any provider" };
   }
 
   const titleMatch = fuzzyMatch(resolvedTitle, metadata.title);
   const authorMatch = fuzzyMatch(resolvedAuthor, metadata.author);
 
   if (!titleMatch || !authorMatch) {
-    console.error(`  [Deterministic] Fuzzy match failed (title: ${titleMatch}, author: ${authorMatch}) — falling through to orchestrator`);
-    return { status: "fallthrough" };
+    const parts: string[] = [];
+    if (!titleMatch) parts.push(`title mismatch: "${resolvedTitle}" vs "${metadata.title}"`);
+    if (!authorMatch) parts.push(`author mismatch: "${resolvedAuthor}" vs "${metadata.author}"`);
+    const reason = `Fuzzy match failed (${parts.join("; ")})`;
+    console.error(`  [Deterministic] ${reason} — falling through to verifier`);
+    return { status: "fallthrough", metadata, title: resolvedTitle, author: resolvedAuthor, reason };
   }
 
   console.error(`  [Deterministic] Match found — writing output directly`);
@@ -193,5 +206,8 @@ export async function deterministicSearch(
 
   const ctx = toToolContext(bookSet, config);
   const writeResult = await writeOutputForBook(metadata, ctx);
-  return writeResultToSearchResult(writeResult.terminal);
+  return writeResultToSearchResult(writeResult.terminal, {
+    metadata, title: resolvedTitle, author: resolvedAuthor,
+    reason: "Match write_output returned flagged",
+  });
 }

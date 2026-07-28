@@ -6,9 +6,9 @@ import type { AsinCache } from "./providers/asin.js";
 import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
 import { createAsinCache } from "./providers/asin.js";
 import { inferBook } from "./inference.js";
-import { createOrchestrator } from "./orchestrator.js";
 import { createPathInterpreter } from "./path-interpreter.js";
 import { deterministicSearch } from "./deterministic-search.js";
+import { createVerifier } from "./verifier.js";
 import { findLocalCoverArt } from "./providers/cover-art.js";
 
 const CACHE_DIR = ".wayfinder/cache";
@@ -40,7 +40,8 @@ export async function processLibrary(config: Config): Promise<void> {
     dryRun: config.dry_run,
     outputDir: config.output,
   });
-  const orchestrateBook = createOrchestrator({
+
+  const verifyBook = createVerifier({
     model: config.llm_model,
     apiKey: config.llm_api_key || undefined,
     apiBaseUrl: config.llm_api_base_url || undefined,
@@ -58,7 +59,7 @@ export async function processLibrary(config: Config): Promise<void> {
 
   const concurrency = Math.max(1, config.concurrency);
   await processWithConcurrency(bookSets, concurrency, (bookSet) =>
-    processBook(bookSet, config, orchestrateBook, fallbacks, interpretPath, asinCache)
+    processBook(bookSet, config, verifyBook, fallbacks, interpretPath, asinCache)
   );
 
   asinCache.save();
@@ -157,7 +158,7 @@ function printSummary(bookSets: BookSet[]): void {
 async function processBook(
   bookSet: BookSet,
   _config: Config,
-  orchestrateBook: ReturnType<typeof createOrchestrator>,
+  verifyBook: ReturnType<typeof createVerifier>,
   fallbacks: Array<{ title: string; reason: string }>,
   interpretPath: ReturnType<typeof createPathInterpreter>,
   asinCache: AsinCache,
@@ -206,7 +207,14 @@ async function processBook(
     return;
   }
 
-  const result = await orchestrateBook(bookSet, localCover);
+  const result = await verifyBook({
+    bookSet,
+    inferredTitle: searchResult.title,
+    inferredAuthor: searchResult.author,
+    metadata: searchResult.metadata,
+    reason: searchResult.reason,
+    localCover,
+  });
 
   if (result.status === "written") {
     const fallbackNote = result.fallbackReason ? ` (fell back: ${result.fallbackReason})` : "";
