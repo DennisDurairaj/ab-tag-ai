@@ -13,7 +13,7 @@ import { flagForReview } from "./agent.js";
 import { createAbsClient, AbsServerError, AbsAuthError, AbsNotFoundError, AbsRateLimitError } from "./providers/abs-client.js";
 import type { AbsClient, AbsSearchResult } from "./providers/abs-client.js";
 
-interface OrchestratorConfig {
+export interface OrchestratorConfig {
   model: string;
   apiKey?: string;
   apiBaseUrl?: string;
@@ -28,12 +28,12 @@ interface OrchestratorConfig {
   absLibraryId: string;
 }
 
-type OrchestrationResult =
+export type OrchestrationResult =
   | { status: "written"; outputDir: string; filesWritten: number; fallbackReason?: string }
   | { status: "skipped"; outputDir: string; reason: string }
   | { status: "flagged"; reason: string };
 
-interface ToolContext {
+export interface ToolContext {
   bookSet: BookSet;
   config: OrchestratorConfig;
   cache: AsinCache;
@@ -431,6 +431,23 @@ async function executeWriteOutput(
     seriesPart,
     coverArt,
   });
+}
+
+export async function writeOutputForBook(
+  metadata: ResolvedMetadata,
+  ctx: ToolContext,
+): Promise<{ content: string; terminal: OrchestrationResult }> {
+  const result = await executeWriteOutput({
+    title: metadata.title,
+    author: metadata.author,
+    asin: metadata.asin,
+    series: metadata.series,
+    seriesPart: metadata.seriesPart,
+    narrator: metadata.narrator,
+    coverUrl: metadata.coverUrl,
+    coverId: metadata.coverId,
+  }, ctx);
+  return { content: result.content, terminal: result.terminal as OrchestrationResult };
 }
 
 function normalizeText(s: string): string {
@@ -850,7 +867,7 @@ export function createOrchestrator(config: OrchestratorConfig) {
   const apiKey = config.apiKey || process.env.LLM_API_KEY;
   const fetchFn = userFetchFn;
 
-  return async function orchestrateBook(bookSet: BookSet): Promise<OrchestrationResult> {
+  return async function orchestrateBook(bookSet: BookSet, preResolvedLocalCover?: Buffer | null): Promise<OrchestrationResult> {
     if (!apiKey) {
       return { status: "flagged", reason: "LLM API key not configured" };
     }
@@ -859,7 +876,7 @@ export function createOrchestrator(config: OrchestratorConfig) {
       bookSet,
       config,
       cache,
-      localCover: null,
+      localCover: preResolvedLocalCover ?? null,
     };
 
     const messages: Array<Record<string, unknown>> = [

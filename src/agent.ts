@@ -2,11 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "./config.js";
 import type { BookSet, AudioFile, Book } from "./types.js";
+import type { AsinCache } from "./providers/asin.js";
 import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
 import { createAsinCache } from "./providers/asin.js";
 import { inferBook } from "./inference.js";
 import { createOrchestrator } from "./orchestrator.js";
 import { createPathInterpreter } from "./path-interpreter.js";
+import { deterministicSearch } from "./deterministic-search.js";
+import { findLocalCoverArt } from "./providers/cover-art.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
@@ -55,7 +58,7 @@ export async function processLibrary(config: Config): Promise<void> {
 
   const concurrency = Math.max(1, config.concurrency);
   await processWithConcurrency(bookSets, concurrency, (bookSet) =>
-    processBook(bookSet, config, orchestrateBook, fallbacks, interpretPath)
+    processBook(bookSet, config, orchestrateBook, fallbacks, interpretPath, asinCache)
   );
 
   asinCache.save();
@@ -157,11 +160,16 @@ async function processBook(
   orchestrateBook: ReturnType<typeof createOrchestrator>,
   fallbacks: Array<{ title: string; reason: string }>,
   interpretPath: ReturnType<typeof createPathInterpreter>,
+  asinCache: AsinCache,
 ): Promise<void> {
   const book = bookSet.books[0];
   if (!book) return;
 
   console.log(`Processing: ${book.title || "Unknown"}`);
+
+  const firstFile = bookSet.files[0];
+  const sourceDir = firstFile ? path.dirname(firstFile.path) : "";
+  const localCover = await findLocalCoverArt(sourceDir);
 
   const pathResult = await interpretPath(bookSet);
   if (pathResult.status === "flagged") {
@@ -172,7 +180,33 @@ async function processBook(
   book.title = pathResult.title;
   book.author = pathResult.author;
 
-  const result = await orchestrateBook(bookSet);
+  const searchResult = await deterministicSearch(bookSet, pathResult.title, pathResult.author, {
+    cache: asinCache,
+    hardcoverApiKey: _config.hardcover_api_key,
+    outputDir: _config.output,
+    dryRun: _config.dry_run,
+    outputMode: _config.output_mode,
+    absUrl: _config.abs_url,
+    absApiToken: _config.abs_api_token,
+    absLibraryId: _config.abs_library_id,
+    localCover,
+  });
+
+  if (searchResult.status === "written") {
+    const fallbackNote = searchResult.fallbackReason ? ` (fell back: ${searchResult.fallbackReason})` : "";
+    console.log(`  Written: ${searchResult.outputDir} (${searchResult.filesWritten} files)${fallbackNote}`);
+    if (searchResult.fallbackReason) {
+      fallbacks.push({ title: book.title, reason: searchResult.fallbackReason });
+    }
+    return;
+  }
+
+  if (searchResult.status === "skipped") {
+    console.log(`  Skipped: ${searchResult.reason}`);
+    return;
+  }
+
+  const result = await orchestrateBook(bookSet, localCover);
 
   if (result.status === "written") {
     const fallbackNote = result.fallbackReason ? ` (fell back: ${result.fallbackReason})` : "";
