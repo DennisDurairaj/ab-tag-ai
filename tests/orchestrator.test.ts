@@ -248,7 +248,7 @@ describe("writeOutputForBook — ABS upload flow", () => {
           }
           return { ok: true, json: () => ({
             book: [
-              { libraryItem: { id: "item-1", media: { metadata: { title: "Wrong Title", authorName: "Wrong Author" } } } },
+              { libraryItem: { id: "item-1", media: { metadata: { title: "Wrong Title", authorName: "Someone Else" } } } },
             ],
           }) };
         }
@@ -294,7 +294,7 @@ describe("writeOutputForBook — ABS upload flow", () => {
       if (result.terminal.status === "flagged") {
         expect(result.terminal.reason).toContain("ABS verify mismatch");
         expect(result.terminal.reason).toContain("Wrong Title");
-        expect(result.terminal.reason).toContain("Wrong Author");
+        expect(result.terminal.reason).toContain("Someone Else");
       }
     } finally {
       globalThis.setTimeout = origSetTimeout;

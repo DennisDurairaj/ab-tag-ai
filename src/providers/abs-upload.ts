@@ -161,7 +161,7 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
   }
 
   try {
-    searchResult = await withRetry("search title", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
+    searchResult = await withRetry("search title", () => absClient.searchLibrary({ libraryId, query: `${title} ${author}`, fetchFn }));
   } catch (err) {
     tagged("ABS", `Duplicate check failed: ${errorLabel(err)} — falling back to local`, "red");
     return fallback(`Search error (${errorLabel(err)})`);
@@ -171,7 +171,7 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
     const meta = item.libraryItem?.media?.metadata || {};
     const itemAuthor = getAuthorFromMeta(meta);
     const itemTitle = getTitleFromMeta(meta);
-    return normalizeText(itemAuthor) === normalizeText(author) && fuzzyMatch(itemTitle, title);
+    return fuzzyMatch(itemAuthor, author) && fuzzyMatch(itemTitle, title);
   });
   if (duplicate) {
     return {
@@ -230,7 +230,7 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
     await new Promise((r) => setTimeout(r, delay));
 
     try {
-      const pollResult = await withRetry("poll", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
+      const pollResult = await withRetry("poll", () => absClient.searchLibrary({ libraryId, query: `${title} ${author}`, fetchFn }));
       if (pollResult.book.length === 0) {
         tagged("ABS", `Poll: no books found for "${title}" (delay ${delay}ms)`, "yellow");
       }
@@ -238,7 +238,7 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
         const meta = item.libraryItem?.media?.metadata || {};
         const itemTitle = getTitleFromMeta(meta);
         const itemAuthor = getAuthorFromMeta(meta);
-        return fuzzyMatch(itemTitle, title) && normalizeText(itemAuthor) === normalizeText(author);
+        return fuzzyMatch(itemTitle, title) && fuzzyMatch(itemAuthor, author);
       });
       if (match) {
         itemId = match.libraryItem.id;
