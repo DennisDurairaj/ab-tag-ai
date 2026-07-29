@@ -13,7 +13,8 @@ Audiobook metadata tagger and organizer for [Audiobookshelf](https://www.audiobo
 ## Features
 
 - **Two output modes** — restructure to an `Author/Series/Book/` filesystem tree, or upload in-place to an Audiobookshelf instance.
-- **Multi-provider metadata resolution** — Open Library (search + ISBN/ASIN), Audnexus (ASIN-based enrichment with narrator + cover), Hardcover (fuzzy search with series support).
+- **Multi-provider metadata resolution** — Audible (ASIN catalog search), Audnexus (narrator + cover), Open Library (ISBN/ASIN), Hardcover (series data), Lubimyczytac (Polish-language scraper).
+- **Language-based provider routing** — LLM detects book language from path structure; Spanish books routed to audible.es, Polish books to Lubimyczytac.
 - **LLM-verified pipeline** — an LLM acts as verifier between metadata discovery and write, returning `trust` / `flag` / `retry` judgments.
 - **Multi-file book detection** — groups files by directory and filename stems, assigns sequential track numbers.
 - **Cover art handling** — downloads from providers, resizes to 500×500 via `sharp`, embeds as APIC in ID3 tags, preserves existing covers.
@@ -123,9 +124,9 @@ output/
 Uploads tagged files to an Audiobookshelf server via its API:
 
 1. Searches the library for duplicates by ASIN and title+author.
-2. Uploads files as a multipart form, triggers a library scan.
-3. Polls until the item appears in search results.
-4. Uploads cover art, patches metadata (ASIN, series), matches to Audible provider.
+2. Uploads files as a multipart form with title, author, and series metadata.
+3. Triggers a library scan, then looks up the item by title to get its ID.
+4. Patches full metadata (narrator, description, publisher, genres, ASIN, ISBN, cover), uploads cover art.
 
 > **Note:** When upload fails after retries (network error, server down, auth failure), the tool falls back to local output with a logged reason.
 
@@ -134,45 +135,63 @@ Uploads tagged files to an Audiobookshelf server via its API:
 ## Architecture
 
 ```
-                ┌─────────────┐
-                │   Scanner   │  Walk input, detect multi-file books
-                └──────┬──────┘
-                       │ BookSet
-                       ▼
-             ┌─────────────────┐
-             │   Orchestrator  │  Per-book LLM loop (tool-calling)
-             └──────┬──────────┘
-                    │
-         ┌──────────┼──────────┐
-         ▼          ▼          ▼
-   Open Library  Audnexus  Hardcover
-   (search +     (ASIN      (fuzzy
-    ISBN/ASIN)    enrich)    search)
-         │          │          │
-         ▼──────────▼──────────▼
-               Metadata
-               ┌─────┴─────┐
-               ▼           ▼
-          LLM Verify   Skip/Flag
-               │
-               ▼
-     ┌─────────────────┐
-     │  Tag & Copy     │  Write ID3/ffmpeg, embed cover
-     └────────┬────────┘
-              │
-     ┌────────┴────────┐
-     ▼                 ▼
-  Local tree     Audiobookshelf
-  (filesystem)     (upload API)
+                 ┌─────────────┐
+                 │   Scanner   │  Walk input, detect multi-file books
+                 └──────┬──────┘
+                        │ BookSet
+                        ▼
+              ┌─────────────────┐
+              │  Path Interpreter│  LLM: title, author, language
+              └──────┬──────────┘
+                     │
+                     ▼
+        ┌────────────────────────────┐
+        │   Deterministic Search     │  Parallel provider search
+        └────────────┬───────────────┘
+                     │
+         ┌───────────┼───────────┬──────────────┐
+         ▼           ▼           ▼              ▼
+      Audible   Open Library  Hardcover   Lubimyczytac
+      (catalog)  (ISBN/ASIN)  (series)     (PL scraper)
+         │           │           │              │
+         └───────────┴───────────┴──────────────┘
+                     │
+                     ▼
+              ┌──────────────┐
+              │ Fuzzy Match   │  Match resolved title/author
+              └──────┬───────┘
+                     │
+              ┌──────┴──────┐
+              ▼              ▼
+          Match OK       Fallthrough
+              │              │
+              ▼              ▼
+      ┌───────────┐  ┌────────────┐
+      │ Write     │  │  Verifier   │  LLM: resolve ambiguity
+      │ Output    │  └─────┬──────┘
+      └─────┬─────┘        │
+            │       ┌──────┴──────┐
+            │       ▼              ▼
+            │   Write Output   Flag for
+            │                  Review
+            ▼
+     ┌─────────────┐
+     │  Tag & Write │  ID3/ffmpeg tags, cover art
+     └──────┬──────┘
+            │
+     ┌──────┴──────┐
+     ▼              ▼
+  Local tree   Audiobookshelf
+  (filesystem)  (upload API)
 ```
 
-### Provider fallback chain
+### Provider chain
 
-Audnexus → Open Library → Hardcover. Rate limits are respected with inter-call delays (1.1s Open Library, 1s Hardcover, 0.6s Audnexus).
+Audible (primary, ASIN + full metadata) → Open Library (ISBN/ASIN fallback) → Hardcover (series data) → Audnexus (ASIN enrichment). Polish-language books route to Lubimyczytac (cheerio scraper) instead of Audible. Language is auto-detected by the LLM during path interpretation.
 
-### LLM as verifier
+### LLM in the pipeline
 
-Procedural code drives the pipeline. The LLM receives tool access (`search_open_library`, `search_hardcover`, `fetch_audnexus`, `write_output`, `flag_for_review`) and returns a verdict per book. Max 1 retry per book, then auto-flag.
+Two LLM phases: (1) **Path Interpreter** — determines title, author, and language from the directory structure. (2) **Verifier** — resolves ambiguous provider matches that fail fuzzy-matching. Most books skip the verifier entirely.
 
 ---
 
@@ -182,7 +201,7 @@ Procedural code drives the pipeline. The LLM receives tool access (`search_open_
 src/
   index.ts              CLI entry (commander), config load + merge
   agent.ts              Sequential per-book orchestration loop
-  orchestrator.ts       LLM tool-calling loop with ABS upload flow
+  orchestrator.ts       Output writer: tags files, dispatches to local or ABS mode
   scanner.ts            Input walker, audio detection, multi-file grouping
   config.ts             YAML loader, CLI override merge, validation
   types.ts              Shared interfaces
@@ -190,10 +209,13 @@ src/
   inference.ts          Book identity inference from paths and tags
   providers/
     abs-client.ts       Audiobookshelf REST client
+    abs-upload.ts       ABS upload saga (dedup, upload, scan, PATCH, cover, verify)
     asin.ts             ASIN validation + cache (.wayfinder/cache/asin.json)
-    audnexus.ts         Audnexus API client
+    audible.ts          Audible catalog search (api.audible.{region})
+    audnexus.ts         Audnexus API client (ASIN-based enrichment)
     cover-art.ts        Cover download, resize (sharp), local lookup
     hardcover.ts        Hardcover GraphQL client
+    lubimyczytac.ts     Lubimyczytac.pl scraper (Polish-language books, cheerio)
     metadata-resolver.ts
     open-library.ts     Open Library search + editions
   taggers/
@@ -246,6 +268,7 @@ Tests run sequentially: upload → metadata verification → duplicate skip → 
 | ID3 tags | node-id3 |
 | M4B metadata | ffmpeg |
 | Cover art | sharp |
+| HTML scraping | cheerio |
 | Testing | vitest |
 | Linting | ESLint + @typescript-eslint |
 | Container | Docker (Alpine, multi-stage) |
