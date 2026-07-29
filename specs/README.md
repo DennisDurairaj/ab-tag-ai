@@ -31,3 +31,5 @@ Like database migrations: each file is a numbered change applied sequentially. R
 | 000 | Baseline                                     | implemented (partially superseded by 001 and 002) |
 | 001 | Audiobookshelf Upload Mode                   | implemented                                       |
 | 002 | Reduce LLM calls — Verifier Not Orchestrator | implemented                                       |
+| 003 | Improve Metadata Reliability                 | implemented                                       |
+| 004 | Language-Based Provider Routing              | proposed                                          |
