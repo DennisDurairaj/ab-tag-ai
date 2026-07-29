@@ -222,21 +222,24 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
 
   let foundId = uploadResult.libraryItemId;
   if (!foundId) {
-    await new Promise((r) => setTimeout(r, 2000));
-    try {
-      const searchResult = await withRetry("lookup", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
-      const match = searchResult.book.find((item) => {
-        const meta = item.libraryItem?.media?.metadata || {};
-        return fuzzyMatch(getTitleFromMeta(meta), title) && fuzzyMatch(getAuthorFromMeta(meta), author);
-      });
-      if (match) {
-        foundId = match.libraryItem.id;
-        tagged("ABS", `Found item ${foundId} via title search for "${title}"`, "green");
-      } else {
-        tagged("ABS", `Title search for "${title}" returned ${searchResult.book.length} results, none matching author "${author}"`, "yellow");
+    const lookupDelays = [2000, 3000, 4000, 5000, 6000];
+    for (const delay of lookupDelays) {
+      await new Promise((r) => setTimeout(r, delay));
+      try {
+        const searchResult = await withRetry("lookup", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
+        const match = searchResult.book.find((item) => {
+          const meta = item.libraryItem?.media?.metadata || {};
+          return fuzzyMatch(getTitleFromMeta(meta), title) && fuzzyMatch(getAuthorFromMeta(meta), author);
+        });
+        if (match) {
+          foundId = match.libraryItem.id;
+          tagged("ABS", `Found item ${foundId} via title search for "${title}"`, "green");
+          break;
+        }
+        tagged("ABS", `Title search for "${title}" (${delay}ms delay): ${searchResult.book.length} results, no author match`, "yellow");
+      } catch {
+        // retry next delay
       }
-    } catch {
-      // lookup failure falls through
     }
   }
 
