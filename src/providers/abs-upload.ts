@@ -197,8 +197,9 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
     return fallback(`Library lookup failed (${errorLabel(err)})`);
   }
 
+  let uploadResult: { id: string; libraryItemId: string };
   try {
-    await withRetry("upload", () => absClient.uploadFiles({
+    uploadResult = await withRetry("upload", () => absClient.uploadFiles({
       libraryId,
       folderId,
       title,
@@ -219,39 +220,11 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
     // scan failure is non-critical
   }
 
-  const pollDelays = [2000, 3000, 4000, 5000, 6000];
-  const pollStart = Date.now();
-  let itemId = "";
-
-  for (const delay of pollDelays) {
-    const elapsed = Date.now() - pollStart;
-    if (elapsed > 25000) break;
-
-    await new Promise((r) => setTimeout(r, delay));
-
-    try {
-      const pollResult = await withRetry("poll", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
-      if (pollResult.book.length === 0) {
-        tagged("ABS", `Poll: no books found for "${title}" (delay ${delay}ms)`, "yellow");
-      }
-      const match = pollResult.book.find((item) => {
-        const meta = item.libraryItem?.media?.metadata || {};
-        const itemTitle = getTitleFromMeta(meta);
-        const itemAuthor = getAuthorFromMeta(meta);
-        return fuzzyMatch(itemTitle, title) && fuzzyMatch(itemAuthor, author);
-      });
-      if (match) {
-        itemId = match.libraryItem.id;
-        break;
-      }
-    } catch {
-      continue;
-    }
-  }
+  const itemId = uploadResult.libraryItemId;
 
   if (!itemId) {
-    tagged("ABS", "Could not discover item ID after upload — falling back to local", "red");
-    return fallback("Item ID not discovered after upload");
+    tagged("ABS", "Upload did not return library item ID — falling back to local", "red");
+    return fallback("Item ID not returned from upload");
   }
 
   try {

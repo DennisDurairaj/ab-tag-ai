@@ -133,7 +133,7 @@ describe("writeOutputForBook — ABS upload flow", () => {
         }
 
         if (url.includes("/api/upload")) {
-          return { ok: true, json: () => ({}) };
+          return { ok: true, json: () => ({ libraryItemId: "item-1" }) };
         }
 
         if (url.includes("/api/items/item-1/cover")) {
@@ -239,13 +239,6 @@ describe("writeOutputForBook — ABS upload flow", () => {
         if (url.includes("/api/libraries/lib-1/search")) {
           searchCall++;
           if (searchCall <= 2) return { ok: true, json: () => ({ book: [] }) };
-          if (searchCall === 3) {
-            return { ok: true, json: () => ({
-              book: [
-                { libraryItem: { id: "item-1", media: { metadata: { title: "Test Book", authorName: "Author" } } } },
-              ],
-            }) };
-          }
           return { ok: true, json: () => ({
             book: [
               { libraryItem: { id: "item-1", media: { metadata: { title: "Wrong Title", authorName: "Someone Else" } } } },
@@ -258,7 +251,7 @@ describe("writeOutputForBook — ABS upload flow", () => {
         }
 
         if (url.includes("/api/upload")) {
-          return { ok: true, json: () => ({}) };
+          return { ok: true, json: () => ({ libraryItemId: "item-1" }) };
         }
 
         if (url.includes("/api/items/item-1/cover")) {
@@ -396,7 +389,7 @@ describe("writeOutputForBook — ABS upload flow", () => {
           if (uploadCalls < 3) {
             return { ok: false, status: 500, text: async () => "Server error" };
           }
-          return { ok: true, json: () => ({}) };
+          return { ok: true, json: () => ({ libraryItemId: "item-1" }) };
         }
 
         if (url.includes("/api/items/item-1/cover")) {
