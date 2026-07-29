@@ -1,6 +1,6 @@
 # 003 — Improve Metadata Reliability
 
-<!-- STATUS: proposed -->
+<!-- STATUS: implemented -->
 <!-- ISSUE: https://github.com/DennisDurairaj/ab-tag-ai/issues/1 -->
 <!-- SUPERSEDES: 001-abs-upload — PATCH payload strategy, match ordering, provider set -->
 

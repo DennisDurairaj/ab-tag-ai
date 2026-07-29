@@ -1,11 +1,11 @@
 {
-  "name": "ab-tag-ai",
+  "name": "audiobook-metadata-ai",
   "version": "0.1.0",
   "description": "A TypeScript CLI tool that scans an input directory, resolves audiobook metadata via multiple book APIs, writes ID3/M4B tags, downloads cover art, and restructures files into an Audiobookshelf-compatible layout.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "ab-tag-ai": "dist/index.js"
+    "abmeta": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",

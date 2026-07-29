@@ -1,4 +1,4 @@
-# ab-tag-ai
+# audiobook-metadata-ai
 
 Audiobook metadata tagger and organizer for [Audiobookshelf](https://www.audiobookshelf.org).
 
@@ -6,7 +6,7 @@ Audiobook metadata tagger and organizer for [Audiobookshelf](https://www.audiobo
 [![TypeScript](https://img.shields.io/badge/types-TypeScript-3178c6)](#)
 [![License](https://img.shields.io/badge/license-MIT-green)](#)
 
-`ab-tag-ai` scans an unstructured directory of audiobook files, resolves metadata from multiple book APIs, writes proper ID3v2/ffmpeg tags, downloads cover art, and copies the result into an organized output tree — or uploads it directly to an Audiobookshelf server.
+`audiobook-metadata-ai` scans an unstructured directory of audiobook files, resolves metadata from multiple book APIs, writes proper ID3v2/ffmpeg tags, downloads cover art, and copies the result into an organized output tree — or uploads it directly to an Audiobookshelf server.
 
 ---
 
@@ -81,7 +81,7 @@ abs_library_id: ""
 ### CLI reference
 
 ```
-Usage: audiobook-organizer [options]
+Usage: abmeta [options]
 
 Options:
   -c, --config <path>        Config file path (default: config.yaml)

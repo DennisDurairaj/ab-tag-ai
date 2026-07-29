@@ -84,7 +84,7 @@ YAML file → env vars (`HARDCOVER_API_KEY`, `LLM_API_KEY`, `LLM_API_BASE_URL`, 
 
 ## CI
 
-On push to `main`, `.github/workflows/build.yml` builds the Docker image and pushes to `ghcr.io/dennisdurairaj/ab-tag-ai:latest`. No typecheck or test step in CI.
+On push to `main`, `.github/workflows/build.yml` builds the Docker image and pushes to `ghcr.io/dennisdurairaj/audiobook-metadata-ai:latest`. No typecheck or test step in CI.
 
 ## Specs
 

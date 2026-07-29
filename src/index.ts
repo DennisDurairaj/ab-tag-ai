@@ -8,7 +8,7 @@ async function main(): Promise<void> {
   const program = new Command();
 
   program
-    .name("audiobook-organizer")
+    .name("abmeta")
     .description("Organize audiobook files with metadata, cover art, and proper directory structure")
     .version("0.1.0")
     .option("-c, --config <path>", "Path to YAML config file", "config.yaml")

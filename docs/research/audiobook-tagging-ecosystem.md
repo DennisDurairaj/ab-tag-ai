@@ -7,9 +7,9 @@
 
 ## Summary / Recommendations
 
-### Where `ab-tag-ai` Fits
+### Where `audiobook-metadata-ai` Fits
 
-`ab-tag-ai` (described in `specs/000-baseline.md` through `specs/002-reduce-llm-calls.md`) is unique among audiobook taggers in its architecture:
+`audiobook-metadata-ai` (described in `specs/000-baseline.md` through `specs/002-reduce-llm-calls.md`) is unique among audiobook taggers in its architecture:
 
 1. **LLM as verifier, not orchestrator** — uses an LLM only for path interpretation (1 call) and ambiguous-match resolution (1 call, ~20% of books). Most books resolve deterministically via fuzzy match on provider results.
 2. **Multi-provider merge** — parallel Open Library + Hardcover searches, ASIN from OL editions, series from HC, enrichment from Audnexus.
@@ -22,7 +22,7 @@
 
 | Tool | Auto-tagging | Multi-provider | ABS Upload | Review Queue | LLM |
 |------|:---:|:---:|:---:|:---:|:---:|
-| **ab-tag-ai** | Yes | OL + HC + Audnexus | Yes | Yes (`review/`) | Yes (verifier) |
+| **audiobook-metadata-ai** | Yes | OL + HC + Audnexus | Yes | Yes (`review/`) | Yes (verifier) |
 | Mp3tag + Audible src | Manual | Audible only (via scraping) | No | No | No |
 | beets + beets-audible | Yes | Audible only (via Audnexus) | No (local only) | Manual prompt | No |
 | m4b-tool | Dir-structure only | None (batch-pattern) | No | No | No |
@@ -33,7 +33,7 @@
 
 ### Recommendation
 
-`ab-tag-ai` is the most appropriate tool for the stated scenario. Its LLM-based path interpreter is the only existing approach that handles _varying folder structures_ without hardcoded patterns. Potential improvements to consider:
+`audiobook-metadata-ai` is the most appropriate tool for the stated scenario. Its LLM-based path interpreter is the only existing approach that handles _varying folder structures_ without hardcoded patterns. Potential improvements to consider:
 
 - **Add Audible as a search provider** — its metadata quality is significantly better than Open Library for audiobook-specific fields (narrator, duration, description).
 - **Add Google Books as a provider** — could improve coverage for non-English books not in Audible/OL/HC. Google Books already has an audiobook-specific search (`volumeInfo.accessInfo.epub.isAvailable`).
@@ -212,7 +212,7 @@ Picard also supports filename-to-tag matching and existing tag-based lookup to M
 ### 2.3 The `abs-tagger` Question
 
 No tool named `abs-tagger` exists in the community. The closest equivalents are:
-- `ab-tag-ai` (this project)
+- `audiobook-metadata-ai` (this project)
 - beets-audible (produces ABS-compatible output)
 - Mp3tag with Audible.com source (manual, but produces ABS-compatible output)
 
@@ -284,7 +284,7 @@ https://api.audible.{tld}/1.0/catalog/products?title={title}&author={author}&num
 - **Editions/ISBN:** `https://openlibrary.org/isbn/{ISBN}.json` — returns edition data including `source_records` which can contain ASINs
 - **Works:** `https://openlibrary.org{worksKey}.json` — returns covers, first_publish_date, description
 - **Covers:** `https://covers.openlibrary.org/b/id/{coverId}-L.jpg`
-- **Rate limits:** ~1 request/second (enforced in ab-tag-ai as 1.1s inter-call delay)
+- **Rate limits:** ~1 request/second (enforced in audiobook-metadata-ai as 1.1s inter-call delay)
 - **No authentication required**
 - **Quality:** Good coverage for popular books; catalog entries often have author/title that are exact matches for filename strings. Open Library is community-edited and varies in quality.
 
@@ -292,7 +292,7 @@ https://api.audible.{tld}/1.0/catalog/products?title={title}&author={author}&num
 
 - **Source:** <https://hardcover.app/>
 - **API:** GraphQL endpoint; requires `HARDCOVER_API_KEY`
-- **Audiobook relevance:** Hardcover provides series name and sequence data that is often more complete than Open Library. Also provides ASINs for Audible editions. Used in ab-tag-ai for series enrichment alongside Open Library's author/title/cover data.
+- **Audiobook relevance:** Hardcover provides series name and sequence data that is often more complete than Open Library. Also provides ASINs for Audible editions. Used in audiobook-metadata-ai for series enrichment alongside Open Library's author/title/cover data.
 - **Rate limits:** ~60 requests/minute
 
 ### 3.6 ISBNdb, Goodreads (unofficial)
@@ -372,7 +372,7 @@ Common patterns seen in the community:
 
 | Tool | Review Mechanism |
 |------|-----------------|
-| ab-tag-ai | `flag_for_review` tool writes JSON to `output/review/`; LLM can flag at any phase; deterministic fuzzy-match gate rejects ambiguous results |
+| audiobook-metadata-ai | `flag_for_review` tool writes JSON to `output/review/`; LLM can flag at any phase; deterministic fuzzy-match gate rejects ambiguous results |
 | Mp3tag + Audible src | User manually reviews every search result before applying tags |
 | beets + beets-audible | Interactive CLI prompt; user confirms each match or enters ASIN manually |
 | Audiobookshelf matching | Manual one-at-a-time in web UI; user selects provider and chooses fields |
@@ -380,7 +380,7 @@ Common patterns seen in the community:
 
 ### 5.2 Uncertainty Flagging
 
-- **ab-tag-ai:** Explicit `flag_for_review` tool available to the LLM in both Path Interpreter and Verifier phases. Books flagged for review are written as JSON files to `output/review/` directory. The fuzzy-match gate in deterministic search automatically routes ambiguous results to the verifier.
+- **audiobook-metadata-ai:** Explicit `flag_for_review` tool available to the LLM in both Path Interpreter and Verifier phases. Books flagged for review are written as JSON files to `output/review/` directory. The fuzzy-match gate in deterministic search automatically routes ambiguous results to the verifier.
 - **beets:** When no match is found, beets prompts the user to enter a different search term or ASIN. The `data_source_mismatch_penalty` config penalizes cross-source matches.
 - **Audiobookshelf:** No automatic flagging — the user must notice mismatches and manually use the match/override UI.
 - **Others:** Most tools either match or fail silently; none have a structured review queue.
@@ -395,12 +395,12 @@ Common patterns seen in the community:
 
 **Filename/path-based matching** (used by most audiobook tools):
 - **Accuracy:** Depends on filename quality. Well-named files (e.g., `Harry Potter and the Philosopher's Stone.mp3`) match correctly with fuzzy string comparison. Poorly named files (e.g., `cd01_track01.mp3`) are unsolvable without external context.
-- **Path-based (ab-tag-ai LLM):** The LLM interprets arbitrary path structures, which is strictly more capable than regex-based filename parsing. The LLM can handle cases like `Author/Series/BookTitle/Files` vs `Author/BookTitle` vs `Author - Series - BookTitle` without hardcoded patterns.
+- **Path-based (audiobook-metadata-ai LLM):** The LLM interprets arbitrary path structures, which is strictly more capable than regex-based filename parsing. The LLM can handle cases like `Author/Series/BookTitle/Files` vs `Author/BookTitle` vs `Author - Series - BookTitle` without hardcoded patterns.
 - **Path-based (m4b-tool/tone):** Uses hardcoded grok patterns (`%g/%a/%s/%p - %n/`). Requires the directory structure to match one of the configured patterns. Fast and predictable but brittle with non-standard structures.
 
 ### 5.4 Multi-provider vs. Single-provider Matching
 
-**ab-tag-ai** uses three providers:
+**audiobook-metadata-ai** uses three providers:
 - Open Library → author, title, ASIN (via editions), cover ID
 - Hardcover → series name, sequence, ASIN
 - Audnexus → narrator, cover URL, duration (enrichment only, after ASIN confirmed)
