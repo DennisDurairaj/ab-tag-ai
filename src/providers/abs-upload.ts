@@ -222,6 +222,7 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
 
   let foundId = uploadResult.libraryItemId;
   if (!foundId) {
+    await new Promise((r) => setTimeout(r, 2000));
     try {
       const searchResult = await withRetry("lookup", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
       const match = searchResult.book.find((item) => {
@@ -230,6 +231,9 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
       });
       if (match) {
         foundId = match.libraryItem.id;
+        tagged("ABS", `Found item ${foundId} via title search for "${title}"`, "green");
+      } else {
+        tagged("ABS", `Title search for "${title}" returned ${searchResult.book.length} results, none matching author "${author}"`, "yellow");
       }
     } catch {
       // lookup failure falls through
