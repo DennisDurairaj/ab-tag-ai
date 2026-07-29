@@ -40,6 +40,15 @@ function normalizeString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function titleMatches(targetTitle: string, productTitle: string): boolean {
+  const clear = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const target = clear(targetTitle);
+  const product = clear(productTitle);
+  if (product.startsWith(target)) return true;
+  const plain = clear(productTitle.replace(/\s*[\[(][^\])]*[\])]\s*$/, ""));
+  return plain.includes(target);
+}
+
 export async function searchAudibleCatalog(
   identity: BookIdentity,
   options: { fetchFn?: typeof fetch } = {},
@@ -63,7 +72,10 @@ export async function searchAudibleCatalog(
     const data = (await response.json()) as AudibleCatalogResponse;
     if (!data.products || data.products.length === 0) return null;
 
-    const product = data.products[0];
+    const matchingProducts = data.products.filter((p) => titleMatches(identity.title, p.title));
+    if (matchingProducts.length === 0) return null;
+
+    const product = matchingProducts[0];
 
     return {
       asin: product.asin,

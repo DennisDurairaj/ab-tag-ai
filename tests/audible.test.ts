@@ -161,23 +161,61 @@ describe("searchAudibleCatalog", () => {
     });
   });
 
-  it("picks the first product when multiple results are returned", async () => {
+  it("picks the first product whose title matches the search", async () => {
     const { mockFn } = createMockFetch({
       status: 200,
       body: {
         products: [
-          { asin: "B00FIRST", title: "First Match" },
-          { asin: "B00SECOND", title: "Second Match" },
+          { asin: "B00FIRST", title: "Test Book: First Edition" },
+          { asin: "B00SECOND", title: "Test Book: Second Edition" },
         ],
       },
     });
 
     const result = await searchAudibleCatalog(
-      { title: "Test", author: "Author" },
+      { title: "Test Book", author: "Author" },
       { fetchFn: mockFn },
     );
 
     expect(result?.asin).toBe("B00FIRST");
-    expect(result?.title).toBe("First Match");
+    expect(result?.title).toBe("Test Book: First Edition");
+  });
+
+  it("filters out products whose title does not match the search", async () => {
+    const { mockFn } = createMockFetch({
+      status: 200,
+      body: {
+        products: [
+          { asin: "B00WRONG", title: "Unrelated Book" },
+          { asin: "B00RIGHT", title: "Test Book" },
+        ],
+      },
+    });
+
+    const result = await searchAudibleCatalog(
+      { title: "Test Book", author: "Author" },
+      { fetchFn: mockFn },
+    );
+
+    expect(result?.asin).toBe("B00RIGHT");
+  });
+
+  it("returns null when no products match the title filter", async () => {
+    const { mockFn } = createMockFetch({
+      status: 200,
+      body: {
+        products: [
+          { asin: "B00WRONG", title: "Unrelated Book" },
+          { asin: "B00WRONG2", title: "Another Different Book" },
+        ],
+      },
+    });
+
+    const result = await searchAudibleCatalog(
+      { title: "Test Book", author: "Author" },
+      { fetchFn: mockFn },
+    );
+
+    expect(result).toBeNull();
   });
 });
