@@ -45,13 +45,13 @@ function makeResolvedMetadata(overrides: Partial<ResolvedMetadata> = {}): Resolv
   };
 }
 
-function expectSeriesTags(tags: Record<string, unknown>, series: string, seriesPart: string): void {
+function expectSeriesTags(tags: Record<string, unknown>, series: string, seriesSequence: string): void {
   const txxx = (tags.raw as Record<string, unknown>)?.TXXX as Array<{ description: string; value: string }>;
   expect(Array.isArray(txxx)).toBe(true);
   const seriesFrame = txxx.find((f) => f.description === "series");
-  const seriesPartFrame = txxx.find((f) => f.description === "series-part");
+  const seriesSequenceFrame = txxx.find((f) => f.description === "series-part");
   expect(seriesFrame?.value).toBe(series);
-  expect(seriesPartFrame?.value).toBe(seriesPart);
+  expect(seriesSequenceFrame?.value).toBe(seriesSequence);
 }
 
 function createTestMp3Files(dir: string, names: string[]): AudioFile[] {
@@ -132,7 +132,7 @@ describe("writeId3Tags", () => {
       artist: "Test Author",
       trackNumber: "1",
       series: "Test Series",
-      seriesPart: "2",
+      seriesSequence: "2",
     });
 
     expect(result).toBe(true);
@@ -185,7 +185,7 @@ describe("tagMultiFileSet", () => {
       title: "The Great Book",
       author: "Great Author",
       series: "Great Series",
-      seriesPart: "1",
+      seriesSequence: "1",
     });
 
     tagMultiFileSet(files, metadata);
@@ -211,7 +211,7 @@ describe("tagMultiFileSet", () => {
 
     const metadata = makeResolvedMetadata({
       series: "My Series",
-      seriesPart: "3",
+      seriesSequence: "3",
     });
 
     tagMultiFileSet(files, metadata);

@@ -241,7 +241,7 @@ describe("searchHardcoverAsin", () => {
     );
     expect(result.asin).toBe("B000002IX7");
     expect(result.series).toBe("Harry Potter");
-    expect(result.seriesPart).toBe("1");
+    expect(result.seriesSequence).toBe("1");
   });
 
   it("returns first book's series when multiple books match", async () => {
@@ -281,6 +281,6 @@ describe("searchHardcoverAsin", () => {
     );
     expect(result.asin).toBe("B000002IX7");
     expect(result.series).toBe("The Dark Tower");
-    expect(result.seriesPart).toBe("3");
+    expect(result.seriesSequence).toBe("3");
   });
 });

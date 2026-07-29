@@ -21,7 +21,7 @@ export interface ResolvedMetadata {
   author: string;
   asin: string;
   series?: string;
-  seriesPart?: string;
+  seriesSequence?: string;
   narrator?: string;
   coverUrl?: string;
   coverId?: number;

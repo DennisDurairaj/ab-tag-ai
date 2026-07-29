@@ -43,10 +43,16 @@ async function executeWriteOutput(
   const author = String(args.author || "");
   const asin = String(args.asin || "");
   const series = args.series ? String(args.series) : undefined;
-  const seriesPart = args.seriesPart ? String(args.seriesPart) : undefined;
+  const seriesSequence = args.seriesSequence ? String(args.seriesSequence) : undefined;
   const narrator = args.narrator ? String(args.narrator) : undefined;
   const coverUrl = args.coverUrl ? String(args.coverUrl) : undefined;
   const coverId = args.coverId !== undefined ? Number(args.coverId) : undefined;
+  const description = args.description ? String(args.description) : undefined;
+  const genres = Array.isArray(args.genres) ? args.genres.map((g: unknown) => String(g)) : undefined;
+  const publisher = args.publisher ? String(args.publisher) : undefined;
+  const language = args.language ? String(args.language) : undefined;
+  const isbn = args.isbn ? String(args.isbn) : undefined;
+  const durationMinutes = args.durationMinutes !== undefined ? Number(args.durationMinutes) : undefined;
 
   const coverArt = ctx.localCover
     ?? await downloadAndResizeCover({ coverUrl, coverId: coverId && coverId > 0 ? coverId : undefined });
@@ -56,10 +62,16 @@ async function executeWriteOutput(
     author,
     asin,
     series,
-    seriesPart,
+    seriesSequence,
     narrator,
     coverUrl,
     coverId,
+    description,
+    genres,
+    publisher,
+    language,
+    isbn,
+    durationMinutes,
   };
 
   tagMultiFileSet(ctx.bookSet.files, resolved, coverArt ?? undefined);
@@ -106,7 +118,13 @@ async function executeWriteOutput(
     author,
     asin,
     series,
-    seriesPart,
+    seriesSequence,
+    narrator,
+    description,
+    genres,
+    publisher,
+    language,
+    isbn,
     coverArt,
   });
 }
@@ -120,10 +138,16 @@ export async function writeOutputForBook(
     author: metadata.author,
     asin: metadata.asin,
     series: metadata.series,
-    seriesPart: metadata.seriesPart,
+    seriesSequence: metadata.seriesSequence,
     narrator: metadata.narrator,
     coverUrl: metadata.coverUrl,
     coverId: metadata.coverId,
+    description: metadata.description,
+    genres: metadata.genres,
+    publisher: metadata.publisher,
+    language: metadata.language,
+    isbn: metadata.isbn,
+    durationMinutes: metadata.durationMinutes,
   }, ctx);
   return { content: result.content, terminal: result.terminal as OrchestrationResult };
 }

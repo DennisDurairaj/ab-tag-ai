@@ -93,7 +93,13 @@ export interface AbsUploadOptions {
   author: string;
   asin: string;
   series?: string;
-  seriesPart?: string;
+  seriesSequence?: string;
+  narrator?: string;
+  description?: string;
+  genres?: string[];
+  publisher?: string;
+  language?: string;
+  isbn?: string;
   coverArt: Buffer | null;
 }
 
@@ -105,8 +111,37 @@ function getTitleFromMeta(meta: Record<string, unknown>): string {
   return String(meta.title || "");
 }
 
+function buildUpdateMediaPayload(options: {
+  title: string;
+  author: string;
+  asin: string;
+  series?: string;
+  seriesSequence?: string;
+  narrator?: string;
+  description?: string;
+  genres?: string[];
+  publisher?: string;
+  language?: string;
+  isbn?: string;
+}) {
+  return {
+    asin: options.asin,
+    title: options.title,
+    authors: [{ name: options.author }],
+    isbn: options.isbn || undefined,
+    narrators: options.narrator ? [options.narrator] : undefined,
+    description: options.description || undefined,
+    genres: options.genres,
+    publisher: options.publisher || undefined,
+    language: options.language || undefined,
+    series: options.series
+      ? [{ name: options.series, sequence: options.seriesSequence || undefined }]
+      : undefined,
+  };
+}
+
 export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: string; terminal: TerminalResult }> {
-  const { ctx, fetchFn, absClient, title, author, asin, series, seriesPart, coverArt } = options;
+  const { ctx, fetchFn, absClient, title, author, asin, series, seriesSequence, narrator, description, genres, publisher, language, isbn, coverArt } = options;
   const libraryId = ctx.config.absLibraryId;
   const fallback = (reason: string) => executeLocalFallback(ctx, author, title, series, coverArt, reason);
 
@@ -222,10 +257,7 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
   try {
     await withRetry("PATCH metadata", () => absClient.updateMedia({
       itemId,
-      metadata: {
-        asin,
-        series: series ? [{ name: series, sequence: seriesPart || undefined }] : undefined,
-      },
+      metadata: buildUpdateMediaPayload({ title, author, asin, series, seriesSequence, narrator, description, genres, publisher, language, isbn }),
       fetchFn,
     }));
   } catch {
@@ -239,9 +271,9 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
       title,
       author,
       series,
-      seriesPart,
+      seriesPart: seriesSequence,
       overrideCover: false,
-      overrideDetails: true,
+      overrideDetails: false,
     };
     const matchResult = await withRetry("provider match", () => absClient.matchItem({ itemId, payload: matchPayload, fetchFn }));
     providerMatched = matchResult.updated;
@@ -261,7 +293,7 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
           await withRetry("revert match", () =>
             absClient.updateMedia({
               itemId,
-              metadata: { asin, series: series ? [{ name: series, sequence: seriesPart || undefined }] : undefined },
+              metadata: buildUpdateMediaPayload({ title, author, asin, series, seriesSequence, narrator, description, genres, publisher, language, isbn }),
               fetchFn,
             }),
           );

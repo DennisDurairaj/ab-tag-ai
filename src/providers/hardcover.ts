@@ -30,12 +30,12 @@ const EDITIONS_QUERY = `
 export interface HardcoverSearchResult {
   asin: string | null;
   series?: string;
-  seriesPart?: string;
+  seriesSequence?: string;
 }
 
 function extractSeriesData(books: Array<{
   book_series?: Array<{ position?: string | number | null; series?: { name?: string | null } | null }> | null;
-}> | undefined | null, index: number): { series?: string; seriesPart?: string } {
+}> | undefined | null, index: number): { series?: string; seriesSequence?: string } {
   if (!books || index >= books.length) return {};
 
   const book = books[index];
@@ -45,7 +45,7 @@ function extractSeriesData(books: Array<{
     if (first?.series?.name) {
       return {
         series: first.series.name,
-        seriesPart: first.position != null ? String(first.position) : undefined,
+        seriesSequence: first.position != null ? String(first.position) : undefined,
       };
     }
   }

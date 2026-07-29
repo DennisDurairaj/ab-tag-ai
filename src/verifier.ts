@@ -29,10 +29,15 @@ const TOOLS = [
           author: { type: "string", description: "Verified book author" },
           asin: { type: "string", description: "Verified 10-character ASIN" },
           series: { type: "string", description: "Series name (optional)" },
-          seriesPart: { type: "string", description: "Book position in series (optional)" },
+          seriesSequence: { type: "string", description: "Book position in series (optional)" },
           narrator: { type: "string", description: "Narrator name (optional)" },
           coverUrl: { type: "string", description: "Cover art URL from Audnexus (optional)" },
           coverId: { type: "number", description: "Open Library cover ID (optional)" },
+          description: { type: "string", description: "Book description (optional)" },
+          genres: { type: "array", items: { type: "string" }, description: "Genre list (optional)" },
+          publisher: { type: "string", description: "Publisher name (optional)" },
+          language: { type: "string", description: "Book language (optional)" },
+          isbn: { type: "string", description: "ISBN identifier (optional)" },
         },
         required: ["title", "author", "asin"],
       },
@@ -104,8 +109,13 @@ function buildInitialMessage(input: VerifierInput): string {
     parts.push(`  Title: "${metadata.title}"`);
     parts.push(`  Author: "${metadata.author}"`);
     if (metadata.series) parts.push(`  Series: "${metadata.series}"`);
-    if (metadata.seriesPart) parts.push(`  Series Part: ${metadata.seriesPart}`);
+    if (metadata.seriesSequence) parts.push(`  Series Sequence: ${metadata.seriesSequence}`);
     if (metadata.narrator) parts.push(`  Narrator: "${metadata.narrator}"`);
+    if (metadata.description) parts.push(`  Description: "${metadata.description.slice(0, 200)}"`);
+    if (metadata.genres) parts.push(`  Genres: ${metadata.genres.join(", ")}`);
+    if (metadata.publisher) parts.push(`  Publisher: "${metadata.publisher}"`);
+    if (metadata.language) parts.push(`  Language: "${metadata.language}"`);
+    if (metadata.isbn) parts.push(`  ISBN: ${metadata.isbn}`);
     if (metadata.coverId) parts.push(`  Cover ID: ${metadata.coverId}`);
     if (metadata.coverUrl) parts.push(`  Cover URL: ${metadata.coverUrl}`);
     providerSection = `Provider Results (merged OL + HC + Audnexus):\n${parts.join("\n")}`;
@@ -152,10 +162,16 @@ async function executeWriteOutputTool(
     author: String(args.author || ""),
     asin: String(args.asin || ""),
     series: args.series ? String(args.series) : undefined,
-    seriesPart: args.seriesPart ? String(args.seriesPart) : undefined,
+    seriesSequence: args.seriesSequence ? String(args.seriesSequence) : undefined,
     narrator: args.narrator ? String(args.narrator) : undefined,
     coverUrl: args.coverUrl ? String(args.coverUrl) : undefined,
     coverId: args.coverId !== undefined ? Number(args.coverId) : undefined,
+    description: args.description ? String(args.description) : undefined,
+    genres: Array.isArray(args.genres) ? args.genres.map((g: unknown) => String(g)) : undefined,
+    publisher: args.publisher ? String(args.publisher) : undefined,
+    language: args.language ? String(args.language) : undefined,
+    isbn: args.isbn ? String(args.isbn) : undefined,
+    durationMinutes: args.durationMinutes !== undefined ? Number(args.durationMinutes) : undefined,
   };
 
   return writeOutputForBook(metadata, ctx);

@@ -44,6 +44,14 @@ export interface AbsSearchResult {
 
 export interface AbsMediaUpdatePayload {
   asin?: string;
+  title?: string;
+  authors?: Array<{ name: string }>;
+  isbn?: string;
+  narrators?: string[];
+  description?: string;
+  genres?: string[];
+  publisher?: string;
+  language?: string;
   series?: Array<{ name: string; sequence?: string }>;
 }
 

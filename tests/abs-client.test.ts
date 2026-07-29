@@ -247,8 +247,7 @@ describe("createAbsClient — updateMedia", () => {
 
       const body = JSON.parse(init?.body as string);
       expect(body.metadata.asin).toBe("B000000001");
-      expect(body.metadata.series).toBe("Test Series");
-      expect(body.metadata.seriesPart).toBe("1");
+      expect(body.metadata.series).toEqual([{ name: "Test Series", sequence: "1" }]);
 
       return makeMockResponse(200, {});
     });
@@ -256,7 +255,42 @@ describe("createAbsClient — updateMedia", () => {
     const client = makeClient();
     await client.updateMedia({
       itemId: "item-1",
-      metadata: { asin: "B000000001", series: "Test Series", seriesPart: "1" },
+      metadata: { asin: "B000000001", series: [{ name: "Test Series", sequence: "1" }] },
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+  });
+
+  it("sends full metadata PATCH payload with all fields", async () => {
+    const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string);
+      expect(body.metadata.asin).toBe("B000000001");
+      expect(body.metadata.title).toBe("Test Book");
+      expect(body.metadata.authors).toEqual([{ name: "Test Author" }]);
+      expect(body.metadata.isbn).toBe("9780000000001");
+      expect(body.metadata.narrators).toEqual(["Narrator Name"]);
+      expect(body.metadata.description).toBe("A description");
+      expect(body.metadata.genres).toEqual(["Fiction"]);
+      expect(body.metadata.publisher).toBe("Publisher Inc.");
+      expect(body.metadata.language).toBe("english");
+      expect(body.metadata.series).toEqual([{ name: "Series Name", sequence: "2" }]);
+      return makeMockResponse(200, {});
+    });
+
+    const client = makeClient();
+    await client.updateMedia({
+      itemId: "item-1",
+      metadata: {
+        asin: "B000000001",
+        title: "Test Book",
+        authors: [{ name: "Test Author" }],
+        isbn: "9780000000001",
+        narrators: ["Narrator Name"],
+        description: "A description",
+        genres: ["Fiction"],
+        publisher: "Publisher Inc.",
+        language: "english",
+        series: [{ name: "Series Name", sequence: "2" }],
+      },
       fetchFn: mockFetch as unknown as typeof fetch,
     });
   });
@@ -283,7 +317,7 @@ describe("createAbsClient — matchItem", () => {
       title: "Test Book",
       author: "Test Author",
       overrideCover: false,
-      overrideDetails: true,
+      overrideDetails: false,
     };
 
     const mockFetch = vi.fn(async (url: string, init?: RequestInit) => {

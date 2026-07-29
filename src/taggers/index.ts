@@ -10,7 +10,7 @@ export interface Id3TagOptions {
   artist: string;
   trackNumber: string;
   series?: string;
-  seriesPart?: string;
+  seriesSequence?: string;
   coverArt?: Buffer;
 }
 
@@ -43,13 +43,13 @@ export function writeId3Tags(filePath: string, options: Id3TagOptions): boolean 
     trackNumber: options.trackNumber,
   };
 
-  if (options.series || options.seriesPart) {
+  if (options.series || options.seriesSequence) {
     const userDefinedText: Array<{ description: string; value: string }> = [];
     if (options.series) {
       userDefinedText.push({ description: "series", value: options.series });
     }
-    if (options.seriesPart) {
-      userDefinedText.push({ description: "series-part", value: options.seriesPart });
+    if (options.seriesSequence) {
+      userDefinedText.push({ description: "series-part", value: options.seriesSequence });
     }
     tags.userDefinedText = userDefinedText;
   }
@@ -114,7 +114,7 @@ export function tagMultiFileSet(
       artist: metadata.author,
       trackNumber: String(file.trackNumber),
       series: metadata.series,
-      seriesPart: metadata.seriesPart,
+      seriesSequence: metadata.seriesSequence,
       coverArt,
     };
 

@@ -147,7 +147,7 @@ describe("verifyBook", () => {
   it("writes output with optional series and narrator fields", async () => {
     const input = setupInput("Author/Test Book", mkMetadata({
       series: "The Test Series",
-      seriesPart: "3",
+      seriesSequence: "3",
       narrator: "Narrator Name",
       coverUrl: "https://example.com/cover.jpg",
     }));
@@ -168,7 +168,7 @@ describe("verifyBook", () => {
             author: "Author Name",
             asin: "B001TEST01",
             series: "The Test Series",
-            seriesPart: "3",
+            seriesSequence: "3",
             narrator: "Narrator Name",
             coverUrl: "https://example.com/cover.jpg",
           },
@@ -183,7 +183,7 @@ describe("verifyBook", () => {
     expect(mockWriteOutput).toHaveBeenCalledOnce();
     const callMeta = mockWriteOutput.mock.calls[0][0];
     expect(callMeta.series).toBe("The Test Series");
-    expect(callMeta.seriesPart).toBe("3");
+    expect(callMeta.seriesSequence).toBe("3");
     expect(callMeta.narrator).toBe("Narrator Name");
     expect(callMeta.coverUrl).toBe("https://example.com/cover.jpg");
   });

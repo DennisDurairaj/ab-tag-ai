@@ -110,7 +110,7 @@ async function fetchOlCoverId(olAsin: string | null, fetchFn?: typeof fetch): Pr
   return undefined;
 }
 
-const SENTINEL_HC = { asin: null, series: undefined, seriesPart: undefined } as const;
+const SENTINEL_HC = { asin: null, series: undefined, seriesSequence: undefined } as const;
 
 async function parallelSearchAndMerge(
   identity: BookIdentity,
@@ -132,14 +132,14 @@ async function parallelSearchAndMerge(
 
   let asin: string | null = null;
   let series: string | undefined;
-  let seriesPart: string | undefined;
+  let seriesSequence: string | undefined;
 
   if (audibleResult) {
     asin = audibleResult.asin;
 
     if (audibleResult.series.length > 0) {
       series = audibleResult.series[0].name;
-      seriesPart = audibleResult.series[0].sequence;
+      seriesSequence = audibleResult.series[0].sequence;
     }
 
     const meta: ResolvedMetadata = {
@@ -160,11 +160,11 @@ async function parallelSearchAndMerge(
 
     if (hcResult.series) {
       if (!series) series = hcResult.series;
-      if (!seriesPart) seriesPart = hcResult.seriesPart;
+      if (!seriesSequence) seriesSequence = hcResult.seriesSequence;
     }
 
     if (series) meta.series = series;
-    if (seriesPart) meta.seriesPart = seriesPart;
+    if (seriesSequence) meta.seriesSequence = seriesSequence;
     if (coverId) meta.coverId = coverId;
 
     return meta;
@@ -177,7 +177,7 @@ async function parallelSearchAndMerge(
   if (hcResult.asin) {
     if (!asin) asin = hcResult.asin;
     if (hcResult.series) series = hcResult.series;
-    if (hcResult.seriesPart) seriesPart = hcResult.seriesPart;
+    if (hcResult.seriesSequence) seriesSequence = hcResult.seriesSequence;
   }
 
   if (!asin) return null;
@@ -192,7 +192,7 @@ async function parallelSearchAndMerge(
   const coverId = await fetchOlCoverId(olAsin, fetchFn);
 
   if (series) metadata.series = series;
-  if (seriesPart) metadata.seriesPart = seriesPart;
+  if (seriesSequence) metadata.seriesSequence = seriesSequence;
   if (coverId) metadata.coverId = coverId;
 
   return metadata;

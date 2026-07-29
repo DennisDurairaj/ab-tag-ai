@@ -168,7 +168,7 @@ describe("deterministicSearch", () => {
     mockSearchHC.mockResolvedValueOnce({
       asin: "B001TEST02",
       series: "The Test Series",
-      seriesPart: "3",
+      seriesSequence: "3",
     } as never);
     mockLookupAudnexus.mockResolvedValueOnce({
       asin: "B001TEST02",
@@ -212,7 +212,7 @@ describe("deterministicSearch", () => {
     mockSearchHC.mockResolvedValueOnce({
       asin: "B001TEST04",
       series: "Series Name",
-      seriesPart: "1",
+      seriesSequence: "1",
     } as never);
     mockLookupAudnexus.mockResolvedValueOnce({
       asin: "B001TEST04",
@@ -373,7 +373,7 @@ describe("deterministicSearch", () => {
     mockSearchHC.mockResolvedValueOnce({
       asin: "B00AUDIBLE",
       series: "HC Series Name",
-      seriesPart: "1",
+      seriesSequence: "1",
     } as never);
 
     const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
