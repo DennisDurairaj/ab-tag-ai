@@ -60,7 +60,7 @@ This cuts LLM calls from 4-8 per book to 1-2 (a 75-90% reduction), with most boo
 
 - **ABS upload path**: `write_output` internally checks `outputMode`. In ABS mode, it runs the full `executeAbsUpload` pipeline (ASIN dedup check, title dedup check, upload, scan, poll, metadata PATCH, provider match with verify/revert, cover upload, verification). The LLM is never exposed to ABS errors, retries, or polling. Failure falls back to local output.
 
-- **Rate-limit delays**: provider-specific inter-call delays (1.1s OL, 1s HC, 0.6s Audnexus) live in the provider modules and are respected regardless of call origin. The deterministic search path uses `metadata-resolver.ts` which already has these delays.
+- **Rate-limit delays**: provider-specific inter-call delays (1.1s OL, 1s HC, 0.6s Audnexus) live in the provider modules and are respected regardless of call origin.
 
 - **MAX_ITERATIONS**: reduced from 30 to 5 for both the Path Interpreter and the Verifier fallback. The LLM no longer runs a search loop, so the budget is for interpretation retries, not tool dispatch.
 
@@ -91,7 +91,6 @@ This cuts LLM calls from 4-8 per book to 1-2 (a 75-90% reduction), with most boo
 
 ## Further Notes
 
-- The `metadata-resolver.ts` module is currently unused in the primary code path but contains the exact deterministic search logic needed. This spec makes it the primary code path.
 - The ASIN cache format (`{title}/{author} → asin`) remains unchanged. The cache population logic moves from the LLM tool handler to the deterministic search phase.
 - The `buildInitialMessage` function in the orchestrator will be split: the path description becomes the Path Interpreter's input, and the provider results summary becomes the Verifier's input.
 
@@ -101,17 +100,16 @@ This cuts LLM calls from 4-8 per book to 1-2 (a 75-90% reduction), with most boo
 |-------|--------|--------|
 | 4-phase pipeline (pre-processing → path interpreter → deterministic search → verifier) | `agent.ts:173-219` | ✓ |
 | Path interpreter tools: only `set_title_author` + `flag_for_review` | `path-interpreter.ts:15-44` | ✓ |
-| Path interpreter MAX_ITERATIONS = 5 | `path-interpreter.ts:47` | ✓ |
+| Path interpreter + Verifier share LLM retry/dispatch via `llm-agent.ts` | `src/llm-agent.ts` | ✓ |
 | Deterministic search: OL + HC parallel via Promise.all | `deterministic-search.ts:104` | ✓ |
 | ASIN cache check before provider search | `deterministic-search.ts:159-176` | ✓ |
 | Fuzzy match gate before writing output | `deterministic-search.ts:192-201` | ✓ |
 | Verifier only on fallthrough | `agent.ts:198-219` | ✓ |
 | Verifier tools: only `write_output` + `flag_for_review` | `verifier.ts:19-54` | ✓ |
-| Verifier MAX_ITERATIONS = 5 | `verifier.ts:57` | ✓ |
 | Audnexus enrichment only after ASIN confirmed | `deterministic-search.ts:136` | ✓ |
 | Local cover detection before LLM (pre-processing) | `agent.ts:175` | ✓ |
-| ABS upload behind write_output, no LLM exposure | `orchestrator.ts:55-134` | ✓ |
-| Rate-limit delays in provider modules | `open-library.ts:6`, `utils.ts:5` | ✓ |
-| ASIN cache key format `{title}/{author}` unchanged | `asin.ts:97` | ✓ |
-| Concurrency with 500ms staggered delays | `agent.ts:89` | ✓ |
-| Metadata-resolver.ts not primary path (deterministic-search implements own merge) | `deterministic-search.ts:98-148` | Minor — behavior equivalent, unused module remains |
+| ABS upload behind write_output via `abs-upload.ts` | `orchestrator.ts`, `abs-upload.ts` | ✓ |
+| Rate-limit delays in provider modules | `open-library.ts`, `utils.ts` | ✓ |
+| ASIN cache key format `{title}/{author}` unchanged | `asin.ts` | ✓ |
+| Concurrency with 500ms staggered delays via `runWithConcurrency` | `utils.ts` | ✓ |
+| Review-file writing via `writeReviewFile` in utils | `utils.ts` | ✓ |

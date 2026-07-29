@@ -30,10 +30,11 @@ This is a TypeScript ESM CLI (`"type": "module"`) that scans audiobook files, re
 
 - `src/index.ts` — CLI (commander), config load + merge, launches `processLibrary`
 - `src/agent.ts` — `processLibrary()`: orchestrates scanning, grouping, per-book pipeline
-- `src/path-interpreter.ts` — Phase 2: LLM tool-calling loop for path interpretation
+- `src/path-interpreter.ts` — Phase 2: path interpretation (uses shared `llm-agent.ts`)
+- `src/llm-agent.ts` — shared LLM retry/tool-call/dispatch loop (used by path-interpreter + verifier)
 - `src/deterministic-search.ts` — Phase 3: parallel OL+HC search, ASIN cache, fuzzy match gate
-- `src/verifier.ts` — Phase 4: LLM verifier fallback
-- `src/orchestrator.ts` — `writeOutputForBook()` and `executeAbsUpload()` (shared by all phases)
+- `src/verifier.ts` — Phase 4: LLM verifier fallback (uses shared `llm-agent.ts`)
+- `src/orchestrator.ts` — `writeOutputForBook()`, types, and output-mode dispatch
 
 ### Providers
 
@@ -41,6 +42,7 @@ This is a TypeScript ESM CLI (`"type": "module"`) that scans audiobook files, re
 - `src/providers/open-library.ts` — Open Library search + editions (ASIN and cover ID)
 - `src/providers/hardcover.ts` — Hardcover GraphQL (ASIN + series data)
 - `src/providers/abs-client.ts` — Audiobookshelf REST client (upload, search, match, cover)
+- `src/providers/abs-upload.ts` — ABS upload saga (duplicate check, upload, scan, poll, match, cover)
 - `src/providers/asin.ts` — ASIN validation, caching, filename/URL extraction
 
 ### Output modes
@@ -98,3 +100,17 @@ Key docs:
 - `specs/000-baseline.md` — original requirements and user stories (partially superseded)
 - `specs/001-abs-upload.md` — Audiobookshelf upload mode (implemented)
 - `specs/002-reduce-llm-calls.md` — LLM-verifier-not-orchestrator refactor (implemented)
+
+## Agent skills
+
+### Issue tracker
+
+GitHub issues via `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

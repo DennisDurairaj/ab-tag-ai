@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { AudioFile } from "./types.js";
+import { dryRun as dryRunMsg } from "./logger.js";
 
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -110,4 +111,60 @@ export function fuzzyMatch(a: string, b: string): boolean {
   if (normA.includes(normB) || normB.includes(normA)) return true;
   if (normA.replace(/[^a-z0-9]/g, "") === normB.replace(/[^a-z0-9]/g, "")) return true;
   return false;
+}
+
+export function writeReviewFile(
+  outputDir: string,
+  dryRun: boolean,
+  title: string,
+  author: string,
+  filePaths: string[],
+  reason: string,
+): void {
+  if (dryRun) {
+    const safeName = title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
+    const reviewPath = path.join(outputDir, "review", `${safeName}.json`);
+    dryRunMsg(`  [DRY-RUN] Would write review to ${reviewPath}: ${reason}`);
+    return;
+  }
+
+  const reviewDir = path.join(outputDir, "review");
+  fs.mkdirSync(reviewDir, { recursive: true });
+  const safeName = title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
+  const reviewPath = path.join(reviewDir, `${safeName}.json`);
+  const reviewData = {
+    title,
+    author,
+    files: filePaths,
+    reason,
+    timestamp: new Date().toISOString(),
+  };
+  fs.writeFileSync(reviewPath, JSON.stringify(reviewData, null, 2), "utf-8");
+}
+
+export async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+  staggerMs = 0,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let idx = 0;
+  let started = 0;
+
+  async function worker(): Promise<void> {
+    while (idx < items.length) {
+      const i = idx++;
+      const delay = started * staggerMs;
+      started++;
+      if (delay > 0) {
+        await new Promise((r) => setTimeout(r, delay));
+      }
+      results[i] = await fn(items[i], i);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }

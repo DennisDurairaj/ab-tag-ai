@@ -1,16 +1,16 @@
-import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "./config.js";
 import type { BookSet, AudioFile, Book } from "./types.js";
 import type { AsinCache } from "./providers/asin.js";
 import { scanForAudioFiles, detectMultiFileSets } from "./scanner.js";
+import { writeReviewFile, runWithConcurrency } from "./utils.js";
 import { createAsinCache } from "./providers/asin.js";
 import { inferBook } from "./inference.js";
 import { createPathInterpreter } from "./path-interpreter.js";
 import { deterministicSearch } from "./deterministic-search.js";
 import { createVerifier } from "./verifier.js";
 import { findLocalCoverArt } from "./providers/cover-art.js";
-import { header, success, skipped, flagged, progress, dryRun, raw, warn, error as logError } from "./logger.js";
+import { header, success, skipped, flagged, progress, raw, warn, error as logError } from "./logger.js";
 
 const CACHE_DIR = ".wayfinder/cache";
 
@@ -57,9 +57,14 @@ export async function processLibrary(config: Config): Promise<void> {
   const fallbacks: Array<{ title: string; reason: string }> = [];
 
   const concurrency = Math.max(1, config.concurrency);
-  await processWithConcurrency(bookSets, concurrency, (bookSet) =>
-    processBook(bookSet, config, verifyBook, fallbacks, interpretPath, asinCache)
-  );
+  await runWithConcurrency(bookSets, concurrency, async (bookSet) => {
+    try {
+      await processBook(bookSet, config, verifyBook, fallbacks, interpretPath, asinCache);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logError(msg);
+    }
+  }, 500);
 
   asinCache.save();
 
@@ -70,43 +75,6 @@ export async function processLibrary(config: Config): Promise<void> {
       raw(`  - "${fb.title}": ${fb.reason}`);
     }
   }
-}
-
-async function processWithConcurrency<T>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<void>,
-): Promise<void> {
-  const queue = [...items];
-  let active = 0;
-  let index = 0;
-  let started = 0;
-
-  return new Promise((resolve) => {
-    function next() {
-      while (active < concurrency && index < queue.length) {
-        const item = queue[index++];
-        const delay = started++ * 500;
-        active++;
-        const run = () => fn(item).catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          logError(msg);
-        }).finally(() => {
-          active--;
-          next();
-        });
-        if (delay > 0) {
-          setTimeout(run, delay);
-        } else {
-          run();
-        }
-      }
-      if (active === 0 && index >= queue.length) {
-        resolve();
-      }
-    }
-    next();
-  });
 }
 
 function groupIntoBooks(files: AudioFile[], inputDir: string): BookSet[] {
@@ -232,23 +200,5 @@ async function processBook(
 }
 
 export function flagForReview(book: Book, filePaths: string[], config: Config, reason: string): void {
-  if (config.dry_run) {
-    const safeName = book.title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
-    const reviewPath = path.join(config.output, "review", `${safeName}.json`);
-    dryRun(`  [DRY-RUN] Would write review to ${reviewPath}: ${reason}`);
-    return;
-  }
-
-  const reviewDir = path.join(config.output, "review");
-  fs.mkdirSync(reviewDir, { recursive: true });
-  const safeName = book.title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
-  const reviewPath = path.join(reviewDir, `${safeName}.json`);
-  const reviewData = {
-    title: book.title,
-    author: book.author,
-    files: filePaths,
-    reason,
-    timestamp: new Date().toISOString(),
-  };
-  fs.writeFileSync(reviewPath, JSON.stringify(reviewData, null, 2), "utf-8");
+  writeReviewFile(config.output, config.dry_run, book.title, book.author, filePaths, reason);
 }

@@ -1,7 +1,7 @@
 import path from "node:path";
-import fs from "node:fs";
 import type { BookSet } from "./types.js";
-import { tagged, dryRun as dryRunMsg, detail } from "./logger.js";
+import { runAgent } from "./llm-agent.js";
+import { writeReviewFile } from "./utils.js";
 
 const SYSTEM_PROMPT = `You are a path interpreter for an audiobook organizer. Your job is to determine the correct author and title from a file path structure.
 
@@ -43,8 +43,6 @@ const TOOLS = [
     },
   },
 ];
-
-const MAX_ITERATIONS = 5;
 
 export interface PathInterpreterConfig {
   model: string;
@@ -95,26 +93,7 @@ function writeFlagForReview(
   const title = book?.title || "Unknown";
   const author = book?.author || "Unknown";
   const filePaths = bookSet.files.map((f) => f.path);
-
-  if (dryRun) {
-    const safeName = title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
-    const reviewPath = path.join(outputDir, "review", `${safeName}.json`);
-    dryRunMsg(`  [DRY-RUN] Would write review to ${reviewPath}: ${reason}`);
-    return;
-  }
-
-  const reviewDir = path.join(outputDir, "review");
-  fs.mkdirSync(reviewDir, { recursive: true });
-  const safeName = title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
-  const reviewPath = path.join(reviewDir, `${safeName}.json`);
-  const reviewData = {
-    title,
-    author,
-    files: filePaths,
-    reason,
-    timestamp: new Date().toISOString(),
-  };
-  fs.writeFileSync(reviewPath, JSON.stringify(reviewData, null, 2), "utf-8");
+  writeReviewFile(outputDir, dryRun, title, author, filePaths, reason);
 }
 
 export function createPathInterpreter(config: PathInterpreterConfig) {
@@ -127,113 +106,45 @@ export function createPathInterpreter(config: PathInterpreterConfig) {
     fetchFn: userFetchFn = fetch,
   } = config;
   const apiKey = configApiKey || process.env.LLM_API_KEY;
-  const fetchFn = userFetchFn;
 
   return async function interpretPath(bookSet: BookSet): Promise<PathInterpreterResult> {
     if (!apiKey) {
       return { status: "flagged", reason: "LLM API key not configured" };
     }
 
-    const messages: Array<Record<string, unknown>> = [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildInitialMessage(bookSet) },
-    ];
-    let lastContent = "";
-
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      tagged("Path Interpreter", `Round ${iteration + 1}/${MAX_ITERATIONS}`, "cyan");
-
-      let response: Response | undefined;
-      let retryDelay = 1000;
-      for (let retry = 0; retry < 3; retry++) {
-        if (retry > 0) {
-          tagged("Req", `Retry ${retry}/3 after ${retryDelay}ms`, "yellow");
-          await new Promise((r) => setTimeout(r, retryDelay));
-          retryDelay *= 2;
-        }
-        try {
-          response = await fetchFn(`${apiBaseUrl}/chat/completions`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({ model, messages, tools: TOOLS, tool_choice: "auto" }),
-          });
-          if (response.status !== 429) break;
-        } catch (e) {
-          tagged("Req", `Fetch failed: ${(e as Error)?.message?.slice(0, 80) || e}`, "red");
-          response = undefined;
-        }
-      }
-
-      if (!response || !response.ok) {
-        return { status: "flagged", reason: `LLM API error: ${response?.status || "unknown"}` };
-      }
-
-      const data = await response.json() as {
-        choices?: Array<{
-          message?: {
-            content?: string;
-            tool_calls?: Array<{
-              id: string;
-              type: "function";
-              function: { name: string; arguments: string };
-            }>;
-          };
-        }>;
-      };
-
-      const message = data.choices?.[0]?.message;
-      if (!message) {
-        return { status: "flagged", reason: "LLM returned empty response" };
-      }
-
-      if (message.content) {
-        lastContent = message.content;
-        detail(`[Path Interpreter] ${message.content.slice(0, 200)}`);
-      }
-
-      messages.push(message);
-
-      const toolCalls = message.tool_calls;
-      if (!toolCalls || toolCalls.length === 0) {
-        return { status: "flagged", reason: lastContent || "LLM finished without calling set_title_author or flag_for_review" };
-      }
-
-      for (const toolCall of toolCalls) {
-        const { name, arguments: argsStr } = toolCall.function;
-        detail(`[Tool call] ${name}(${argsStr.slice(0, 200)})`);
-
-        let args: Record<string, unknown>;
-        try {
-          args = JSON.parse(argsStr);
-        } catch {
-          messages.push({ role: "tool", tool_call_id: toolCall.id, content: "Error: invalid arguments" });
-          continue;
-        }
-
+    const result = await runAgent<PathInterpreterResult>({
+      systemPrompt: SYSTEM_PROMPT,
+      initialMessage: buildInitialMessage(bookSet),
+      tools: TOOLS,
+      handleToolCall: async (name, args) => {
         if (name === "set_title_author") {
           const title = String(args.title || "").trim();
           const author = String(args.author || "").trim();
           if (!title || !author) {
-            messages.push({ role: "tool", tool_call_id: toolCall.id, content: "Error: title and author are required" });
-            continue;
+            return { outcome: "continue", content: "Error: title and author are required" };
           }
-          return { status: "resolved", title, author };
+          return { outcome: "terminal", value: { status: "resolved", title, author } };
         }
 
         if (name === "flag_for_review") {
           const reason = String(args.reason || "Path could not be interpreted");
           writeFlagForReview(bookSet, outputDir, dryRun, reason);
-          return { status: "flagged", reason };
+          return { outcome: "terminal", value: { status: "flagged", reason } };
         }
 
-        messages.push({ role: "tool", tool_call_id: toolCall.id, content: `Error: unknown tool "${name}"` });
-      }
+        return { outcome: "continue", content: `Error: unknown tool "${name}"` };
+      },
+      model,
+      apiKey,
+      apiBaseUrl,
+      fetchFn: userFetchFn,
+      logLabel: "Path Interpreter",
+    });
+
+    if (result.status === "ok") {
+      return result.value!;
     }
 
-    const prefix = lastContent ? `${lastContent.slice(0, 200)} — ` : "";
-    return { status: "flagged", reason: `${prefix}Exceeded max iterations (${MAX_ITERATIONS}) without terminal tool call` };
+    return { status: "flagged", reason: result.reason! };
   };
 }

@@ -3,8 +3,8 @@ import type { BookSet, ResolvedMetadata } from "./types.js";
 import type { ToolContext, OrchestrationResult } from "./orchestrator.js";
 import { writeOutputForBook } from "./orchestrator.js";
 import type { AsinCache } from "./providers/asin.js";
-import { flagForReview } from "./agent.js";
-import { tagged, detail } from "./logger.js";
+import { runAgent } from "./llm-agent.js";
+import { writeReviewFile } from "./utils.js";
 
 const SYSTEM_PROMPT = `You are a metadata verifier for an audiobook organizer. The title and author have been inferred from the folder path, and provider searches (Open Library, Hardcover, Audnexus) have returned results that did not pass automated fuzzy matching. Your job is to review the provider results against the inferred identity and decide whether the match is close enough, or whether to flag for manual review.
 
@@ -53,8 +53,6 @@ const TOOLS = [
     },
   },
 ];
-
-const MAX_ITERATIONS = 5;
 
 export interface VerifierConfig {
   model: string;
@@ -142,22 +140,7 @@ function writeFlagForReview(
   const book = input.bookSet.books[0];
   if (!book) return;
   const filePaths = input.bookSet.files.map((f) => f.path);
-  flagForReview(book, filePaths, {
-    input: "",
-    output: outputDir,
-    hardcover_api_key: "",
-    dry_run: dryRun,
-    llm_model: "",
-    llm_api_key: "",
-    llm_api_base_url: "",
-    concurrency: 1,
-    include: [],
-    log_level: "info",
-    output_mode: "local",
-    abs_url: "",
-    abs_api_token: "",
-    abs_library_id: "",
-  }, reason);
+  writeReviewFile(outputDir, dryRun, book.title, book.author, filePaths, reason);
 }
 
 async function executeWriteOutputTool(
@@ -189,7 +172,6 @@ export function createVerifier(config: VerifierConfig) {
     cache,
   } = config;
   const apiKey = configApiKey || process.env.LLM_API_KEY;
-  const fetchFn = userFetchFn;
 
   return async function verifyBook(input: VerifierInput): Promise<VerifierResult> {
     if (!apiKey) {
@@ -211,7 +193,7 @@ export function createVerifier(config: VerifierConfig) {
         hardcoverApiKey: config.hardcoverApiKey,
         outputDir,
         dryRun,
-        fetchFn,
+        fetchFn: userFetchFn,
         cache,
         outputMode: config.outputMode,
         absUrl: config.absUrl,
@@ -222,120 +204,46 @@ export function createVerifier(config: VerifierConfig) {
       localCover: input.localCover,
     };
 
-    const messages: Array<Record<string, unknown>> = [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildInitialMessage(input) },
-    ];
-    let lastContent = "";
-
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      tagged("Verifier", `Round ${iteration + 1}/${MAX_ITERATIONS}`, "cyan");
-
-      let response: Response | undefined;
-      let retryDelay = 1000;
-      for (let retry = 0; retry < 3; retry++) {
-        if (retry > 0) {
-          tagged("Req", `Retry ${retry}/3 after ${retryDelay}ms`, "yellow");
-          await new Promise((r) => setTimeout(r, retryDelay));
-          retryDelay *= 2;
-        }
-        try {
-          response = await fetchFn(`${apiBaseUrl}/chat/completions`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({ model, messages, tools: TOOLS, tool_choice: "auto" }),
-          });
-          if (response.status !== 429) break;
-        } catch (e) {
-          tagged("Req", `Fetch failed: ${(e as Error)?.message?.slice(0, 80) || e}`, "red");
-          response = undefined;
-        }
-      }
-
-      if (!response || !response.ok) {
-        writeFlagForReview(input, outputDir, dryRun, `LLM API error: ${response?.status || "unknown"}`);
-        return { status: "flagged", reason: `LLM API error: ${response?.status || "unknown"}` };
-      }
-
-      const data = await response.json() as {
-        choices?: Array<{
-          message?: {
-            content?: string;
-            tool_calls?: Array<{
-              id: string;
-              type: "function";
-              function: { name: string; arguments: string };
-            }>;
-          };
-        }>;
-      };
-
-      const message = data.choices?.[0]?.message;
-      if (!message) {
-        writeFlagForReview(input, outputDir, dryRun, "LLM returned empty response");
-        return { status: "flagged", reason: "LLM returned empty response" };
-      }
-
-      if (message.content) {
-        lastContent = message.content;
-        detail(`[Verifier] ${message.content.slice(0, 200)}`);
-      }
-
-      messages.push(message);
-
-      const toolCalls = message.tool_calls;
-      if (!toolCalls || toolCalls.length === 0) {
-        return {
-          status: "flagged",
-          reason: lastContent || "LLM finished without calling write_output or flag_for_review",
-        };
-      }
-
-      for (const toolCall of toolCalls) {
-        const { name, arguments: argsStr } = toolCall.function;
-        detail(`[Tool call] ${name}(${argsStr.slice(0, 200)})`);
-
-        let args: Record<string, unknown>;
-        try {
-          args = JSON.parse(argsStr);
-        } catch {
-          messages.push({ role: "tool", tool_call_id: toolCall.id, content: "Error: invalid arguments" });
-          continue;
-        }
-
+    const result = await runAgent<VerifierResult>({
+      systemPrompt: SYSTEM_PROMPT,
+      initialMessage: buildInitialMessage(input),
+      tools: TOOLS,
+      handleToolCall: async (name, args) => {
         if (name === "write_output") {
           const title = String(args.title || "").trim();
           const author = String(args.author || "").trim();
           const asin = String(args.asin || "").trim();
           if (!title || !author || !asin) {
-            messages.push({ role: "tool", tool_call_id: toolCall.id, content: "Error: title, author, and asin are required" });
-            continue;
+            return { outcome: "continue", content: "Error: title, author, and asin are required" };
           }
 
-          const { content, terminal } = await executeWriteOutputTool(args, context);
-          detail(`[Tool result] ${content.slice(0, 300)}`);
-          messages.push({ role: "tool", tool_call_id: toolCall.id, content });
-
-          if (terminal) {
-            return terminal;
+          const toolOutput = await executeWriteOutputTool(args, context);
+          if (toolOutput.terminal) {
+            return { outcome: "terminal", value: toolOutput.terminal };
           }
-        } else if (name === "flag_for_review") {
+          return { outcome: "continue", content: toolOutput.content };
+        }
+
+        if (name === "flag_for_review") {
           const reason = String(args.reason || "Could not verify provider metadata");
           writeFlagForReview(input, outputDir, dryRun, reason);
-          messages.push({ role: "tool", tool_call_id: toolCall.id, content: `Flagged for review: ${reason}` });
-          return { status: "flagged", reason };
-        } else {
-          messages.push({ role: "tool", tool_call_id: toolCall.id, content: `Error: unknown tool "${name}"` });
+          return { outcome: "terminal", value: { status: "flagged", reason } };
         }
-      }
+
+        return { outcome: "continue", content: `Error: unknown tool "${name}"` };
+      },
+      model,
+      apiKey,
+      apiBaseUrl,
+      fetchFn: userFetchFn,
+      logLabel: "Verifier",
+    });
+
+    if (result.status === "ok") {
+      return result.value!;
     }
 
-    const prefix = lastContent ? `${lastContent.slice(0, 200)} — ` : "";
-    const autoReason = `${prefix}Exceeded max iterations (${MAX_ITERATIONS}) without terminal tool call`;
-    writeFlagForReview(input, outputDir, dryRun, autoReason);
-    return { status: "flagged", reason: autoReason };
+    writeFlagForReview(input, outputDir, dryRun, result.reason!);
+    return { status: "flagged", reason: result.reason! };
   };
 }

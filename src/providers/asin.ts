@@ -1,7 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { BookIdentity } from "../types.js";
-import { delay } from "../utils.js";
 import { lookupAudnexusBook } from "./audnexus.js";
 
 const ASIN_REGEX = /^[A-Za-z0-9]{10}$/;
@@ -91,78 +89,4 @@ export function createAsinCache(cacheDir: string): AsinCache {
       saveCacheToDisk(cacheDir, data);
     },
   };
-}
-
-function cacheKey(identity: BookIdentity): string {
-  return `${identity.title}/${identity.author}`;
-}
-
-function cachedResult(cache: AsinCache, key: string, asin: string, source: string): AsinResult {
-  cache.set(key, asin);
-  return { asin, source };
-}
-
-export interface AcquireAsinOptions {
-  identity: BookIdentity;
-  filePaths: string[];
-  cache: AsinCache;
-  hardcoverApiKey: string;
-  existingAsin?: string;
-  searchOpenLibrary: (identity: BookIdentity) => Promise<string | null>;
-  searchHardcover: (identity: BookIdentity, apiKey: string) => Promise<string | null>;
-  verifyAsinFn?: (asin: string) => Promise<boolean>;
-}
-
-export interface AsinResult {
-  asin: string | null;
-  source: string;
-}
-
-export async function acquireAsin(options: AcquireAsinOptions): Promise<AsinResult> {
-  const { identity, filePaths, cache, hardcoverApiKey, existingAsin, searchOpenLibrary, searchHardcover, verifyAsinFn } = options;
-  const key = cacheKey(identity);
-
-  const cached = cache.get(key);
-  if (cached) {
-    return { asin: cached, source: "cache" };
-  }
-
-  if (existingAsin && validateAsin(existingAsin)) {
-    const verified = verifyAsinFn
-      ? await verifyAsinFn(existingAsin)
-      : true;
-    if (verified) {
-      return cachedResult(cache, key, existingAsin, "existing-verified");
-    }
-  }
-
-  const fromOpenLibrary = await searchOpenLibrary(identity);
-  if (fromOpenLibrary) {
-    return cachedResult(cache, key, fromOpenLibrary, "open-library");
-  }
-  await delay(1100);
-
-  if (hardcoverApiKey) {
-    const fromHardcover = await searchHardcover(identity, hardcoverApiKey);
-    if (fromHardcover) {
-      return cachedResult(cache, key, fromHardcover, "hardcover");
-    }
-    await delay(1000);
-  }
-
-  for (const filePath of filePaths) {
-    const fromFilename = extractAsinFromFilename(filePath);
-    if (fromFilename) {
-      return cachedResult(cache, key, fromFilename, "filename");
-    }
-  }
-
-  for (const filePath of filePaths) {
-    const fromUrl = extractAsinFromAudibleUrl(filePath);
-    if (fromUrl) {
-      return cachedResult(cache, key, fromUrl, "audible-url");
-    }
-  }
-
-  return { asin: null, source: "none" };
 }

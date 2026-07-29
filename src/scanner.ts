@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AudioFile, AudioMetadata, MultiFileSet } from "./types.js";
 import { progress, error as logError, success } from "./logger.js";
+import { runWithConcurrency } from "./utils.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -73,25 +74,6 @@ async function readM4bMetadata(filePath: string): Promise<AudioMetadata> {
   }
 }
 
-async function withConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let idx = 0;
-
-  async function worker(): Promise<void> {
-    while (idx < items.length) {
-      const i = idx++;
-      results[i] = await fn(items[i]);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
-  return results;
-}
-
 async function scanFiles(
   filePaths: string[],
   format: "mp3" | "m4b",
@@ -101,7 +83,7 @@ async function scanFiles(
   if (filePaths.length === 0) return [];
 
   const typedRead = readMetadata as (filePath: string) => Promise<AudioMetadata>;
-  const metadataResults = await withConcurrency(filePaths, concurrency, async (fp) => {
+  const metadataResults = await runWithConcurrency(filePaths, concurrency, async (fp) => {
     let metadata = await typedRead(fp);
     if (Object.keys(metadata).length === 0) {
       metadata = inferFromFilename(fp);
