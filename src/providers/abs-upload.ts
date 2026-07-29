@@ -222,7 +222,7 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
 
   let foundId = uploadResult.libraryItemId;
   if (!foundId) {
-    const lookupDelays = [2000, 3000, 4000, 5000, 6000];
+    const lookupDelays = [3000, 5000, 7000, 9000, 11000, 13000, 15000];
     for (const delay of lookupDelays) {
       await new Promise((r) => setTimeout(r, delay));
       try {
