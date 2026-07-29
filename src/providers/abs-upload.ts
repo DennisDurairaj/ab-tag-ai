@@ -161,7 +161,7 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
   }
 
   try {
-    searchResult = await withRetry("search title", () => absClient.searchLibrary({ libraryId, query: `${title} ${author}`, fetchFn }));
+    searchResult = await withRetry("search title", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
   } catch (err) {
     tagged("ABS", `Duplicate check failed: ${errorLabel(err)} — falling back to local`, "red");
     return fallback(`Search error (${errorLabel(err)})`);
@@ -230,7 +230,7 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
     await new Promise((r) => setTimeout(r, delay));
 
     try {
-      const pollResult = await withRetry("poll", () => absClient.searchLibrary({ libraryId, query: `${title} ${author}`, fetchFn }));
+      const pollResult = await withRetry("poll", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
       if (pollResult.book.length === 0) {
         tagged("ABS", `Poll: no books found for "${title}" (delay ${delay}ms)`, "yellow");
       }
