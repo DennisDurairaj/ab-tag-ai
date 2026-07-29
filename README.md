@@ -1,4 +1,4 @@
-# audiobook-metadata-ai
+# abmeta
 
 Audiobook metadata tagger and organizer for [Audiobookshelf](https://www.audiobookshelf.org).
 
@@ -6,7 +6,49 @@ Audiobook metadata tagger and organizer for [Audiobookshelf](https://www.audiobo
 [![TypeScript](https://img.shields.io/badge/types-TypeScript-3178c6)](#)
 [![License](https://img.shields.io/badge/license-MIT-green)](#)
 
-`audiobook-metadata-ai` scans an unstructured directory of audiobook files, resolves metadata from multiple book APIs, writes proper ID3v2/ffmpeg tags, downloads cover art, and copies the result into an organized output tree — or uploads it directly to an Audiobookshelf server.
+`abmeta` scans an unstructured directory of audiobook files, resolves metadata from multiple book APIs, writes proper ID3v2/ffmpeg tags, downloads cover art, and copies the result into an organized output tree — or uploads it directly to an Audiobookshelf server.
+
+---
+
+## Prerequisites
+
+- **Node.js** ≥ 22
+- **ffmpeg** on PATH (required for M4B metadata writing)
+  - macOS: `brew install ffmpeg`
+  - Ubuntu/Debian: `sudo apt install ffmpeg`
+  - Windows: `winget install ffmpeg`
+
+## Quick start
+
+```bash
+npx abmeta --config config.yaml
+```
+
+Or with CLI flags instead of a config file:
+
+```bash
+npx abmeta -i /path/to/audiobooks -o /path/to/output --hardcover-key sk-...
+```
+
+Preview before writing:
+
+```bash
+npx abmeta --config config.yaml --dry-run
+```
+
+Interactively pick which folders to process:
+
+```bash
+npx abmeta -i /path/to/audiobooks -o /path/to/output --include
+```
+
+### Docker
+
+```bash
+docker compose up organize
+# or just preview:
+docker compose --profile check up dry-run
+```
 
 ---
 
@@ -17,35 +59,13 @@ Audiobook metadata tagger and organizer for [Audiobookshelf](https://www.audiobo
 - **Language-based provider routing** — LLM detects book language from path structure; Spanish books routed to audible.es, Polish books to Lubimyczytac.
 - **LLM-verified pipeline** — an LLM acts as verifier between metadata discovery and write, returning `trust` / `flag` / `retry` judgments.
 - **Multi-file book detection** — groups files by directory and filename stems, assigns sequential track numbers.
+- **Interactive folder picker** — `--include` flag launches a searchable multi-select prompt to choose which folders to process.
 - **Cover art handling** — downloads from providers, resizes to 500×500 via `sharp`, embeds as APIC in ID3 tags, preserves existing covers.
 - **Duplicate prevention** — checks for existing ASINs and matching title+author before uploading to Audiobookshelf.
 - **Fallback to local** — when the ABS upload fails (network, auth, server error), the tool falls back to local filesystem output.
 - **Sidecar preservation** — keeps `.nfo`, `.cue`, `.json`, and synopsis files; discards junk.
 - **Dry-run mode** — preview all changes before writing.
 - **Docker image** — ready-to-run container with multi-stage build.
-
----
-
-## Quick start
-
-```bash
-npm install
-npm run build
-
-# Run against a directory
-npm run dev -- -c config.yaml
-
-# Preview only
-npm run dev -- -c config.yaml --dry-run
-```
-
-### Docker
-
-```bash
-docker compose up organize
-# or just preview:
-docker compose --profile check up dry-run
-```
 
 ---
 
