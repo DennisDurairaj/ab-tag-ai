@@ -1,6 +1,6 @@
 # 004 — Language-Based Provider Routing
 
-<!-- STATUS: proposed -->
+<!-- STATUS: implemented -->
 
 ## Problem Statement
 

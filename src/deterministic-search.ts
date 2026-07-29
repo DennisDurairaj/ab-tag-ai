@@ -19,6 +19,7 @@ export interface DeterministicSearchConfig {
   absApiToken: string;
   absLibraryId: string;
   localCover: Buffer | null;
+  language?: string;
   fetchFn?: typeof fetch;
 }
 
@@ -112,16 +113,38 @@ async function fetchOlCoverId(olAsin: string | null, fetchFn?: typeof fetch): Pr
 
 const SENTINEL_HC = { asin: null, series: undefined, seriesSequence: undefined } as const;
 
+export interface RoutingConfig {
+  providers: ("audible" | "ol" | "hc")[];
+  audibleRegion: string;
+}
+
+export function resolveRouting(language?: string): RoutingConfig {
+  switch (language) {
+    case "es":
+      return { providers: ["audible", "ol", "hc"], audibleRegion: "es" };
+    default:
+      return { providers: ["audible", "ol", "hc"], audibleRegion: "com" };
+  }
+}
+
 async function parallelSearchAndMerge(
   identity: BookIdentity,
   hardcoverApiKey: string,
   resolvedAuthor: string,
   fetchFn?: typeof fetch,
+  language?: string,
 ): Promise<ResolvedMetadata | null> {
+  const routing = resolveRouting(language);
+  const includeAudible = routing.providers.includes("audible");
+  const includeOL = routing.providers.includes("ol");
+  const includeHC = routing.providers.includes("hc");
+
   const [audibleResult, olAsin, hcResult] = await Promise.all([
-    searchAudibleCatalog(identity, { fetchFn }),
-    searchOpenLibraryAsin(identity, fetchFn),
-    hardcoverApiKey
+    includeAudible
+      ? searchAudibleCatalog(identity, { fetchFn, region: routing.audibleRegion })
+      : Promise.resolve(null),
+    includeOL ? searchOpenLibraryAsin(identity, fetchFn) : Promise.resolve(null),
+    includeHC && hardcoverApiKey
       ? searchHardcoverAsin(identity, hardcoverApiKey, fetchFn)
       : Promise.resolve(SENTINEL_HC),
   ]);
@@ -233,6 +256,7 @@ export async function deterministicSearch(
     config.hardcoverApiKey,
     resolvedAuthor,
     fetchFn,
+    config.language,
   );
 
   if (!metadata) {

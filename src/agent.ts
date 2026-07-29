@@ -161,6 +161,7 @@ async function processBook(
     absApiToken: config.abs_api_token,
     absLibraryId: config.abs_library_id,
     localCover,
+    language: pathResult.language,
   });
 
   if (searchResult.status === "written") {

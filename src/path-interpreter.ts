@@ -23,6 +23,7 @@ const TOOLS = [
         properties: {
           title: { type: "string", description: "Book title from the path" },
           author: { type: "string", description: "Book author from the path (first segment)" },
+          language: { type: "string", description: "ISO 639-1 language code (optional). Detect from the book title and path structure. Use 'en' for English, 'pl' for Polish, 'es' for Spanish, 'no' for Norwegian." },
         },
         required: ["title", "author"],
       },
@@ -54,7 +55,7 @@ export interface PathInterpreterConfig {
 }
 
 export type PathInterpreterResult =
-  | { status: "resolved"; title: string; author: string }
+  | { status: "resolved"; title: string; author: string; language?: string }
   | { status: "flagged"; reason: string };
 
 function buildInitialMessage(bookSet: BookSet): string {
@@ -123,7 +124,8 @@ export function createPathInterpreter(config: PathInterpreterConfig) {
           if (!title || !author) {
             return { outcome: "continue", content: "Error: title and author are required" };
           }
-          return { outcome: "terminal", value: { status: "resolved", title, author } };
+          const language = typeof args.language === "string" && args.language.trim() ? args.language.trim() : undefined;
+          return { outcome: "terminal", value: { status: "resolved", title, author, language } };
         }
 
         if (name === "flag_for_review") {

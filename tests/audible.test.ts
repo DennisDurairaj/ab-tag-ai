@@ -218,4 +218,43 @@ describe("searchAudibleCatalog", () => {
 
     expect(result).toBeNull();
   });
+
+  it("uses audible.es URL when region is 'es'", async () => {
+    const { mockFn, calls } = createMockFetch({
+      status: 200,
+      body: {
+        products: [
+          { asin: "B00ESBOOK", title: "Libro de Prueba" },
+        ],
+      },
+    });
+
+    await searchAudibleCatalog(
+      { title: "Libro de Prueba", author: "Autor" },
+      { fetchFn: mockFn, region: "es" },
+    );
+
+    const url = calls[0].url;
+    expect(url).toContain("api.audible.es/1.0/catalog/products");
+    expect(url).not.toContain("api.audible.com");
+  });
+
+  it("defaults to audible.com when no region is provided", async () => {
+    const { mockFn, calls } = createMockFetch({
+      status: 200,
+      body: {
+        products: [
+          { asin: "B00DEFAULT", title: "Test Book" },
+        ],
+      },
+    });
+
+    await searchAudibleCatalog(
+      { title: "Test Book", author: "Author" },
+      { fetchFn: mockFn },
+    );
+
+    const url = calls[0].url;
+    expect(url).toContain("api.audible.com/1.0/catalog/products");
+  });
 });

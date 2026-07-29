@@ -310,4 +310,68 @@ describe("interpretPath", () => {
     const url = fakeFetch.mock.calls[0][0];
     expect(url).toContain("custom-llm.example.com");
   });
+
+  it("passes language field through when LLM provides it", async () => {
+    const bookDir = path.join(tmpDir, "Autor", "Libro");
+    fs.mkdirSync(bookDir, { recursive: true });
+    createTempFile(bookDir, "chapter.mp3");
+    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
+
+    const fakeFetch = vi.fn(async () => {
+      return {
+        ok: true,
+        json: () => mockChatResponse(null, [
+          { id: "call_1", name: "set_title_author", args: { title: "Libro", author: "Autor", language: "es" } },
+        ]),
+      };
+    });
+
+    const interpretPath = createPathInterpreter({
+      model: "test-model",
+      apiKey: "test-key",
+      outputDir,
+      dryRun: false,
+      fetchFn: fakeFetch as unknown as typeof fetch,
+    });
+
+    const result = await interpretPath(bookSet);
+    expect(result.status).toBe("resolved");
+    if (result.status === "resolved") {
+      expect(result.title).toBe("Libro");
+      expect(result.author).toBe("Autor");
+      expect(result.language).toBe("es");
+    }
+  });
+
+  it("omits language field when LLM does not provide it", async () => {
+    const bookDir = path.join(tmpDir, "Author", "Book");
+    fs.mkdirSync(bookDir, { recursive: true });
+    createTempFile(bookDir, "chapter.mp3");
+    const bookSet = mkBookSet([mkFile(path.join(bookDir, "chapter.mp3"))]);
+
+    const fakeFetch = vi.fn(async () => {
+      return {
+        ok: true,
+        json: () => mockChatResponse(null, [
+          { id: "call_1", name: "set_title_author", args: { title: "Book", author: "Author" } },
+        ]),
+      };
+    });
+
+    const interpretPath = createPathInterpreter({
+      model: "test-model",
+      apiKey: "test-key",
+      outputDir,
+      dryRun: false,
+      fetchFn: fakeFetch as unknown as typeof fetch,
+    });
+
+    const result = await interpretPath(bookSet);
+    expect(result.status).toBe("resolved");
+    if (result.status === "resolved") {
+      expect(result.title).toBe("Book");
+      expect(result.author).toBe("Author");
+      expect(result.language).toBeUndefined();
+    }
+  });
 });

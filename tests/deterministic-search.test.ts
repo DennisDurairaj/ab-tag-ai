@@ -95,7 +95,7 @@ function createTempFile(dir: string, name: string): string {
   return filePath;
 }
 
-import { deterministicSearch } from "../src/deterministic-search.js";
+import { deterministicSearch, resolveRouting } from "../src/deterministic-search.js";
 import { searchAudibleCatalog } from "../src/providers/audible.js";
 import { lookupAudnexusBook } from "../src/providers/audnexus.js";
 import { searchOpenLibraryAsin, searchOpenLibraryByIsbn } from "../src/providers/open-library.js";
@@ -430,5 +430,143 @@ describe("deterministicSearch", () => {
     const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
 
     expect(result.status).toBe("written");
+  });
+});
+
+describe("resolveRouting", () => {
+  it("maps 'es' to audible region 'es' with all providers", () => {
+    const routing = resolveRouting("es");
+    expect(routing.audibleRegion).toBe("es");
+    expect(routing.providers).toEqual(["audible", "ol", "hc"]);
+  });
+
+  it("maps undefined to audible region 'com' with all providers", () => {
+    const routing = resolveRouting(undefined);
+    expect(routing.audibleRegion).toBe("com");
+    expect(routing.providers).toEqual(["audible", "ol", "hc"]);
+  });
+
+  it("maps unknown language to audible region 'com' with all providers", () => {
+    const routing = resolveRouting("ja");
+    expect(routing.audibleRegion).toBe("com");
+    expect(routing.providers).toEqual(["audible", "ol", "hc"]);
+  });
+
+  it("maps 'en' to audible region 'com' with all providers", () => {
+    const routing = resolveRouting("en");
+    expect(routing.audibleRegion).toBe("com");
+    expect(routing.providers).toEqual(["audible", "ol", "hc"]);
+  });
+
+  it("maps 'pl' to audible region 'com' with all providers", () => {
+    const routing = resolveRouting("pl");
+    expect(routing.audibleRegion).toBe("com");
+    expect(routing.providers).toEqual(["audible", "ol", "hc"]);
+  });
+
+  it("maps 'no' to audible region 'com' with all providers", () => {
+    const routing = resolveRouting("no");
+    expect(routing.audibleRegion).toBe("com");
+    expect(routing.providers).toEqual(["audible", "ol", "hc"]);
+  });
+});
+
+describe("deterministicSearch with language routing", () => {
+  it("passes region 'es' to searchAudibleCatalog when language is 'es'", async () => {
+    const bookSet = setupBook("Autor/Libro de Prueba");
+
+    mockSearchAudible.mockResolvedValueOnce({
+      asin: "B00ESBOOK",
+      title: "Libro de Prueba",
+      authors: [{ name: "Autor" }],
+      narrators: [],
+      series: [],
+      description: "",
+      genres: [],
+      publisher: "",
+      language: "español",
+      coverUrl: "",
+      durationMinutes: 0,
+      isbn: "",
+    } as never);
+
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+
+    const config = makeBaseConfig();
+    config.language = "es";
+
+    const result = await deterministicSearch(bookSet, "Libro de Prueba", "Autor", config);
+
+    expect(result.status).toBe("written");
+    expect(mockSearchAudible).toHaveBeenCalledWith(
+      { title: "Libro de Prueba", author: "Autor" },
+      { fetchFn: undefined, region: "es" },
+    );
+  });
+
+  it("passes region 'com' to searchAudibleCatalog when language is undefined", async () => {
+    const bookSet = setupBook("Author/Test Book");
+
+    mockSearchAudible.mockResolvedValueOnce({
+      asin: "B00DEFAULT",
+      title: "Test Book",
+      authors: [{ name: "Author" }],
+      narrators: [],
+      series: [],
+      description: "",
+      genres: [],
+      publisher: "",
+      language: "english",
+      coverUrl: "",
+      durationMinutes: 0,
+      isbn: "",
+    } as never);
+
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+
+    const config = makeBaseConfig();
+
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", config);
+
+    expect(result.status).toBe("written");
+    expect(mockSearchAudible).toHaveBeenCalledWith(
+      { title: "Test Book", author: "Author" },
+      { fetchFn: undefined, region: "com" },
+    );
+  });
+
+  it("passes region 'com' to searchAudibleCatalog when language is 'en'", async () => {
+    const bookSet = setupBook("Author/Test Book");
+
+    mockSearchAudible.mockResolvedValueOnce({
+      asin: "B00ENBOOK",
+      title: "Test Book",
+      authors: [{ name: "Author" }],
+      narrators: [],
+      series: [],
+      description: "",
+      genres: [],
+      publisher: "",
+      language: "english",
+      coverUrl: "",
+      durationMinutes: 0,
+      isbn: "",
+    } as never);
+
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+
+    const config = makeBaseConfig();
+    config.language = "en";
+
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", config);
+
+    expect(result.status).toBe("written");
+    expect(mockSearchAudible).toHaveBeenCalledWith(
+      { title: "Test Book", author: "Author" },
+      { fetchFn: undefined, region: "com" },
+    );
   });
 });

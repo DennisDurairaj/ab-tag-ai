@@ -1,6 +1,8 @@
 import type { BookIdentity } from "../types.js";
 
-const AUDIBLE_CATALOG_URL = "https://api.audible.com/1.0/catalog/products";
+function audibleCatalogUrl(region: string): string {
+  return `https://api.audible.${region}/1.0/catalog/products`;
+}
 
 export interface AudibleProduct {
   asin: string;
@@ -51,9 +53,9 @@ function titleMatches(targetTitle: string, productTitle: string): boolean {
 
 export async function searchAudibleCatalog(
   identity: BookIdentity,
-  options: { fetchFn?: typeof fetch } = {},
+  options: { fetchFn?: typeof fetch; region?: string } = {},
 ): Promise<AudibleSearchResult | null> {
-  const { fetchFn = fetch } = options;
+  const { fetchFn = fetch, region = "com" } = options;
 
   try {
     const params = new URLSearchParams({
@@ -64,7 +66,7 @@ export async function searchAudibleCatalog(
       response_groups: "product_desc,contributors,series,media",
     });
 
-    const url = `${AUDIBLE_CATALOG_URL}?${params.toString()}`;
+    const url = `${audibleCatalogUrl(region)}?${params.toString()}`;
     const response = await fetchFn(url);
 
     if (!response.ok) return null;
