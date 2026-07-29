@@ -258,6 +258,10 @@ Tests run sequentially: upload → metadata verification → duplicate skip → 
 
 ---
 
+## Roadmap
+
+- **Web UI mode** — interactive folder selection served from the Docker container on a port, bringing the CLI picker experience to headless deployments.
+
 ## Tech stack
 
 | Area | Choice |

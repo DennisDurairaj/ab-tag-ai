@@ -1,8 +1,10 @@
+import fs from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
 import { loadConfig, mergeCliOverrides, validateConfig } from "./config.js";
 import { processLibrary } from "./agent.js";
-import { setLogLevel, error as logErr, dryRun } from "./logger.js";
+import { setLogLevel, error as logErr, warn as logWarn, dryRun, success, raw } from "./logger.js";
+import { runInteractivePicker } from "./interactive-picker.js";
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -18,7 +20,7 @@ async function main(): Promise<void> {
     .option("--llm-key <key>", "LLM API key")
     .option("--llm-base-url <url>", "LLM API base URL")
     .option("--concurrency <n>", "Number of books to process in parallel", "4")
-    .option("--include <patterns>", "Comma-separated author names or patterns to include")
+    .option("--include", "Interactively select folders to process")
     .option("--dry-run", "Preview changes without writing to disk", false)
     .option("--log-level <level>", "Logging level (debug, info, warn, error)", "info")
     .option("--abs-url <url>", "Audiobookshelf server URL")
@@ -40,12 +42,33 @@ async function main(): Promise<void> {
   if (options.llmKey) cliOverrides.llm_api_key = options.llmKey;
   if (options.llmBaseUrl) cliOverrides.llm_api_base_url = options.llmBaseUrl;
   if (options.concurrency) cliOverrides.concurrency = Number(options.concurrency);
-  if (options.include) cliOverrides.include = options.include.split(",").map((s: string) => s.trim());
   if (options.absUrl) cliOverrides.abs_url = options.absUrl;
   if (options.absToken) cliOverrides.abs_api_token = options.absToken;
   if (options.absLibraryId) cliOverrides.abs_library_id = options.absLibraryId;
 
   config = mergeCliOverrides(config, cliOverrides as Partial<typeof config>);
+
+  if (options.include) {
+    const inputPath = config.input;
+    if (!inputPath || !fs.existsSync(inputPath) || !fs.statSync(inputPath).isDirectory()) {
+      logErr("--include requires a valid input directory. Set input path via --input or config.yaml.");
+      program.help({ error: true });
+    }
+
+    if (process.stdin.isTTY) {
+      const selected = await runInteractivePicker(inputPath);
+      if (selected.length > 0) {
+        cliOverrides.include = selected;
+        config = mergeCliOverrides(config, cliOverrides as Partial<typeof config>);
+        success(`Processing ${selected.length} folder${selected.length === 1 ? "" : "s"}:`);
+        raw(`  ${selected.join(" / ")}`);
+      } else {
+        logWarn("No folders selected. Run without --include to process all folders.");
+      }
+    } else {
+      logWarn("--include requires an interactive terminal. Processing all folders instead.");
+    }
+  }
 
   setLogLevel(config.log_level);
 

@@ -33,3 +33,4 @@ Like database migrations: each file is a numbered change applied sequentially. R
 | 002 | Reduce LLM calls — Verifier Not Orchestrator | implemented                                       |
 | 003 | Improve Metadata Reliability                 | implemented                                       |
 | 004 | Language-Based Provider Routing              | proposed                                          |
+| 005 | Interactive CLI Folder Picker                | proposed                                          |
