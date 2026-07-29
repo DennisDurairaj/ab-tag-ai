@@ -91,7 +91,7 @@ Options:
   --llm-key <key>            LLM API key
   --llm-base-url <url>       LLM API base URL
   --concurrency <n>          Books to process in parallel (default: 4)
-  --include <patterns>       Comma-separated author/pattern filters
+  --include                  Interactively select folders to process
   --dry-run                  Preview without writing
   --log-level <level>        debug | info | warn | error
   --abs-url <url>            Audiobookshelf server URL

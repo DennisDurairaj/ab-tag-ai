@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { loadConfig, mergeCliOverrides, validateConfig } from "./config.js";
 import { processLibrary } from "./agent.js";
-import { setLogLevel, error as logErr, warn as logWarn, dryRun, success, raw } from "./logger.js";
+import { setLogLevel, error as logErr, warn as logWarn, dryRun, success } from "./logger.js";
 import { runInteractivePicker } from "./interactive-picker.js";
 
 async function main(): Promise<void> {
@@ -60,8 +61,7 @@ async function main(): Promise<void> {
       if (selected.length > 0) {
         cliOverrides.include = selected;
         config = mergeCliOverrides(config, cliOverrides as Partial<typeof config>);
-        success(`Processing ${selected.length} folder${selected.length === 1 ? "" : "s"}:`);
-        raw(`  ${selected.join(" / ")}`);
+        success(`Processing ${selected.length} folder${selected.length === 1 ? "" : "s"}: ${selected.join(" / ")}`);
       } else {
         logWarn("No folders selected. Run without --include to process all folders.");
       }
@@ -88,7 +88,12 @@ async function main(): Promise<void> {
   await processLibrary(config);
 }
 
-main().catch((err: unknown) => {
-  logErr(`Fatal error: ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
-});
+export { main };
+
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
+  main().catch((err: unknown) => {
+    logErr(`Fatal error: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });
+}
