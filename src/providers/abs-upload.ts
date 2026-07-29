@@ -220,12 +220,28 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
     // scan failure is non-critical
   }
 
-  const itemId = uploadResult.libraryItemId;
-
-  if (!itemId) {
-    tagged("ABS", "Upload did not return library item ID — falling back to local", "red");
-    return fallback("Item ID not returned from upload");
+  let foundId = uploadResult.libraryItemId;
+  if (!foundId) {
+    try {
+      const searchResult = await withRetry("lookup", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
+      const match = searchResult.book.find((item) => {
+        const meta = item.libraryItem?.media?.metadata || {};
+        return fuzzyMatch(getTitleFromMeta(meta), title) && fuzzyMatch(getAuthorFromMeta(meta), author);
+      });
+      if (match) {
+        foundId = match.libraryItem.id;
+      }
+    } catch {
+      // lookup failure falls through
+    }
   }
+
+  if (!foundId) {
+    tagged("ABS", "Could not discover item ID after upload — falling back to local", "red");
+    return fallback("Item ID not discovered after upload");
+  }
+
+  const itemId = foundId;
 
   try {
     await withRetry("PATCH metadata", () => absClient.updateMedia({

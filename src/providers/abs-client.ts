@@ -280,8 +280,12 @@ export function createAbsClient(config: AbsClientConfig): AbsClient {
 
       await checkResponse(response);
 
-      const data = (await response.json()) as { id?: string; libraryItemId?: string };
-      return { id: data.id || "", libraryItemId: data.libraryItemId || "" };
+      try {
+        const data = (await response.json()) as { id?: string; libraryItemId?: string };
+        return { id: data.id || "", libraryItemId: data.libraryItemId || "" };
+      } catch {
+        return { id: "", libraryItemId: "" };
+      }
     },
 
     async scanLibrary({ libraryId, fetchFn = fetch }) {
