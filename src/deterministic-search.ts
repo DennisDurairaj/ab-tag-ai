@@ -247,17 +247,29 @@ async function parallelSearchAndMerge(
   if (!asin) return null;
 
   const enriched = await tryAudnexusEnrichment(asin, resolvedAuthor, fetchFn);
-  const metadata: ResolvedMetadata = enriched ?? {
-    title: identity.title,
-    author: identity.author,
-    asin,
-  };
 
-  const coverId = await fetchOlCoverId(olAsin, fetchFn);
+  let metadata: ResolvedMetadata;
+  let coverId: number | undefined;
+
+  if (enriched) {
+    metadata = enriched;
+    coverId = await fetchOlCoverId(olAsin, fetchFn);
+  } else {
+    const olBook = olAsin ? await searchOpenLibraryByIsbn(olAsin, fetchFn) : null;
+    metadata = {
+      title: identity.title,
+      author: identity.author,
+      asin,
+      publisher: olBook?.publisher?.[0],
+      genres: olBook?.subject,
+      language: olBook?.language?.[0],
+    };
+    coverId = olBook?.coverId;
+  }
 
   if (series) metadata.series = series;
   if (seriesSequence) metadata.seriesSequence = seriesSequence;
-  if (coverId) metadata.coverId = coverId;
+  if (coverId && !metadata.coverId) metadata.coverId = coverId;
 
   return metadata;
 }
