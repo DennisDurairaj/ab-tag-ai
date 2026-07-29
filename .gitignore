@@ -1,6 +1,4 @@
 node_modules
 
-# Runtime cache
-.wayfinder/cache/
 .wayfinder
 dist
