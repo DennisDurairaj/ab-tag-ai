@@ -3,6 +3,7 @@ import type { AsinCache } from "./providers/asin.js";
 import { lookupAudnexusBook } from "./providers/audnexus.js";
 import { searchOpenLibraryAsin, searchOpenLibraryByIsbn } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
+import { searchAudibleCatalog } from "./providers/audible.js";
 import type { OrchestratorConfig, ToolContext, OrchestrationResult } from "./orchestrator.js";
 import { writeOutputForBook } from "./orchestrator.js";
 import { fuzzyMatch, delay } from "./utils.js";
@@ -40,6 +41,11 @@ async function tryAudnexusEnrichment(
       narrator: result.narrators[0]?.name,
       coverUrl: result.image || undefined,
       durationMinutes: result.runtimeLengthMin,
+      description: result.description || undefined,
+      genres: result.genres?.map((g) => g.name) || undefined,
+      publisher: result.publisherName || undefined,
+      language: result.language || undefined,
+      isbn: result.isbn || undefined,
     };
   }
   await delay(600);
@@ -95,17 +101,29 @@ function writeResultToSearchResult(
   return { status: "fallthrough", metadata: null, title: "", author: "", reason: "Output flagged" };
 }
 
+async function fetchOlCoverId(olAsin: string | null, fetchFn?: typeof fetch): Promise<number | undefined> {
+  if (!olAsin) return undefined;
+  const olBook = await searchOpenLibraryByIsbn(olAsin, fetchFn);
+  if (olBook?.coverId && olBook.coverId > 0) {
+    return olBook.coverId;
+  }
+  return undefined;
+}
+
+const SENTINEL_HC = { asin: null, series: undefined, seriesPart: undefined } as const;
+
 async function parallelSearchAndMerge(
   identity: BookIdentity,
   hardcoverApiKey: string,
   resolvedAuthor: string,
   fetchFn?: typeof fetch,
 ): Promise<ResolvedMetadata | null> {
-  const [olAsin, hcResult] = await Promise.all([
+  const [audibleResult, olAsin, hcResult] = await Promise.all([
+    searchAudibleCatalog(identity, { fetchFn }),
     searchOpenLibraryAsin(identity, fetchFn),
     hardcoverApiKey
       ? searchHardcoverAsin(identity, hardcoverApiKey, fetchFn)
-      : Promise.resolve({ asin: null }),
+      : Promise.resolve(SENTINEL_HC),
   ]);
 
   if (hardcoverApiKey) {
@@ -113,16 +131,47 @@ async function parallelSearchAndMerge(
   }
 
   let asin: string | null = null;
-  let coverId: number | undefined;
   let series: string | undefined;
   let seriesPart: string | undefined;
 
+  if (audibleResult) {
+    asin = audibleResult.asin;
+
+    if (audibleResult.series.length > 0) {
+      series = audibleResult.series[0].name;
+      seriesPart = audibleResult.series[0].sequence;
+    }
+
+    const meta: ResolvedMetadata = {
+      title: audibleResult.title,
+      author: audibleResult.authors[0]?.name || identity.author,
+      asin: audibleResult.asin,
+      narrator: audibleResult.narrators[0]?.name,
+      coverUrl: audibleResult.coverUrl || undefined,
+      durationMinutes: audibleResult.durationMinutes || undefined,
+      description: audibleResult.description || undefined,
+      genres: audibleResult.genres.length > 0 ? audibleResult.genres : undefined,
+      publisher: audibleResult.publisher || undefined,
+      language: audibleResult.language || undefined,
+      isbn: audibleResult.isbn || undefined,
+    };
+
+    const coverId = await fetchOlCoverId(olAsin, fetchFn);
+
+    if (hcResult.series) {
+      if (!series) series = hcResult.series;
+      if (!seriesPart) seriesPart = hcResult.seriesPart;
+    }
+
+    if (series) meta.series = series;
+    if (seriesPart) meta.seriesPart = seriesPart;
+    if (coverId) meta.coverId = coverId;
+
+    return meta;
+  }
+
   if (olAsin) {
     asin = olAsin;
-    const olBook = await searchOpenLibraryByIsbn(olAsin, fetchFn);
-    if (olBook?.coverId && olBook.coverId > 0) {
-      coverId = olBook.coverId;
-    }
   }
 
   if (hcResult.asin) {
@@ -139,6 +188,8 @@ async function parallelSearchAndMerge(
     author: identity.author,
     asin,
   };
+
+  const coverId = await fetchOlCoverId(olAsin, fetchFn);
 
   if (series) metadata.series = series;
   if (seriesPart) metadata.seriesPart = seriesPart;
@@ -175,7 +226,7 @@ export async function deterministicSearch(
     });
   }
 
-  tagged("Deterministic", `Cache miss — searching OL + HC in parallel for "${resolvedTitle}" by ${resolvedAuthor}`, "cyan");
+  tagged("Deterministic", `Cache miss — searching Audible + OL + HC in parallel for "${resolvedTitle}" by ${resolvedAuthor}`, "cyan");
 
   const metadata = await parallelSearchAndMerge(
     { title: resolvedTitle, author: resolvedAuthor },

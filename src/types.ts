@@ -26,6 +26,11 @@ export interface ResolvedMetadata {
   coverUrl?: string;
   coverId?: number;
   durationMinutes?: number;
+  description?: string;
+  genres?: string[];
+  publisher?: string;
+  language?: string;
+  isbn?: string;
 }
 
 export interface Book {

@@ -10,6 +10,14 @@ vi.mock("../src/utils.js", async () => {
   return { ...actual, delay: vi.fn(() => Promise.resolve()) };
 });
 
+vi.mock("../src/providers/audible.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/providers/audible.js")>("../src/providers/audible.js");
+  return {
+    ...actual,
+    searchAudibleCatalog: vi.fn(),
+  };
+});
+
 vi.mock("../src/providers/audnexus.js", async () => {
   const actual = await vi.importActual<typeof import("../src/providers/audnexus.js")>("../src/providers/audnexus.js");
   return {
@@ -75,6 +83,7 @@ let cache: ReturnType<typeof createAsinCache>;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockSearchAudible.mockResolvedValue(null as never);
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "deterministic-search-test-"));
   outputDir = path.join(tmpDir, "output");
   cache = createAsinCache(tmpDir);
@@ -87,10 +96,12 @@ function createTempFile(dir: string, name: string): string {
 }
 
 import { deterministicSearch } from "../src/deterministic-search.js";
+import { searchAudibleCatalog } from "../src/providers/audible.js";
 import { lookupAudnexusBook } from "../src/providers/audnexus.js";
 import { searchOpenLibraryAsin, searchOpenLibraryByIsbn } from "../src/providers/open-library.js";
 import { searchHardcoverAsin } from "../src/providers/hardcover.js";
 
+const mockSearchAudible = vi.mocked(searchAudibleCatalog);
 const mockLookupAudnexus = vi.mocked(lookupAudnexusBook);
 const mockSearchOL = vi.mocked(searchOpenLibraryAsin);
 const mockSearchOLByIsbn = vi.mocked(searchOpenLibraryByIsbn);
@@ -282,6 +293,123 @@ describe("deterministicSearch", () => {
     const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
 
     expect(result.status).toBe("written");
+  });
+
+  it("Audible returns result → uses Audible metadata, skips Audnexus", async () => {
+    const bookSet = setupBook("Author/Test Book");
+
+    mockSearchAudible.mockResolvedValueOnce({
+      asin: "B00AUDIBLE",
+      title: "Test Book",
+      authors: [{ name: "Author" }],
+      narrators: [{ name: "Audible Narrator" }],
+      series: [{ name: "Audible Series", sequence: "2" }],
+      description: "A thrilling audiobook",
+      genres: ["Fiction", "Adventure"],
+      publisher: "Audible Originals",
+      language: "english",
+      coverUrl: "https://audible.com/cover.jpg",
+      durationMinutes: 720,
+      isbn: "9780000000001",
+    } as never);
+
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
+
+    expect(result.status).toBe("written");
+    expect(cache.get("Test Book/Author")).toBe("B00AUDIBLE");
+    expect(mockLookupAudnexus).not.toHaveBeenCalled();
+  });
+
+  it("Audible returns null → falls back to OL + HC + Audnexus", async () => {
+    const bookSet = setupBook("Author/Test Book");
+
+    mockSearchAudible.mockResolvedValueOnce(null as never);
+    mockSearchOL.mockResolvedValueOnce("B00OLONLY" as never);
+    mockSearchOLByIsbn.mockResolvedValueOnce({ coverId: 0 } as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+    mockLookupAudnexus.mockResolvedValueOnce({
+      asin: "B00OLONLY",
+      title: "Test Book",
+      authors: [{ name: "Author" }],
+      narrators: [{ name: "Audnexus Narrator" }],
+      image: null,
+      runtimeLengthMin: 0,
+      description: null,
+      genres: [],
+      publisherName: null,
+      language: null,
+      isbn: null,
+    } as never);
+
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
+
+    expect(result.status).toBe("written");
+    expect(cache.get("Test Book/Author")).toBe("B00OLONLY");
+    expect(mockLookupAudnexus).toHaveBeenCalled();
+  });
+
+  it("Audible returns, HC supplements series when Audible has none", async () => {
+    const bookSet = setupBook("Author/Test Book");
+
+    mockSearchAudible.mockResolvedValueOnce({
+      asin: "B00AUDIBLE",
+      title: "Test Book",
+      authors: [{ name: "Author" }],
+      narrators: [],
+      series: [],
+      description: "",
+      genres: [],
+      publisher: "",
+      language: "",
+      coverUrl: "",
+      durationMinutes: 0,
+      isbn: "",
+    } as never);
+
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({
+      asin: "B00AUDIBLE",
+      series: "HC Series Name",
+      seriesPart: "1",
+    } as never);
+
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
+
+    expect(result.status).toBe("written");
+    expect(cache.get("Test Book/Author")).toBe("B00AUDIBLE");
+    expect(mockLookupAudnexus).not.toHaveBeenCalled();
+  });
+
+  it("Audible fuzzy match fails on title → fallthrough", async () => {
+    const bookSet = setupBook("Author/Test Book");
+
+    mockSearchAudible.mockResolvedValueOnce({
+      asin: "B00AUDIBLE",
+      title: "Different Book Title",
+      authors: [{ name: "Author" }],
+      narrators: [],
+      series: [],
+      description: "",
+      genres: [],
+      publisher: "",
+      language: "",
+      coverUrl: "",
+      durationMinutes: 0,
+      isbn: "",
+    } as never);
+
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+
+    const result = await deterministicSearch(bookSet, "Test Book", "Author", makeBaseConfig());
+
+    expect(result.status).toBe("fallthrough");
+    if (result.status === "fallthrough") {
+      expect(result.reason).toContain("Fuzzy match failed");
+    }
   });
 
   it("fuzzy match handles punctuation differences", async () => {
