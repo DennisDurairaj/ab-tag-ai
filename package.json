@@ -17,6 +17,7 @@
     "lint": "eslint src/"
   },
   "dependencies": {
+    "cheerio": "^1.2.0",
     "commander": "^12.1.0",
     "ffprobe-static": "^3.1.0",
     "glob": "^11.0.0",
@@ -26,6 +27,7 @@
     "sharp": "^0.33.5"
   },
   "devDependencies": {
+    "@types/cheerio": "^0.22.35",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.13.11",
     "@typescript-eslint/eslint-plugin": "^8.18.0",

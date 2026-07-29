@@ -43,6 +43,14 @@ vi.mock("../src/providers/hardcover.js", async () => {
   };
 });
 
+vi.mock("../src/providers/lubimyczytac.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/providers/lubimyczytac.js")>("../src/providers/lubimyczytac.js");
+  return {
+    ...actual,
+    searchLubimyczytac: vi.fn(),
+  };
+});
+
 vi.mock("../src/providers/cover-art.js", async () => {
   const actual = await vi.importActual<typeof import("../src/providers/cover-art.js")>("../src/providers/cover-art.js");
   return {
@@ -100,12 +108,14 @@ import { searchAudibleCatalog } from "../src/providers/audible.js";
 import { lookupAudnexusBook } from "../src/providers/audnexus.js";
 import { searchOpenLibraryAsin, searchOpenLibraryByIsbn } from "../src/providers/open-library.js";
 import { searchHardcoverAsin } from "../src/providers/hardcover.js";
+import { searchLubimyczytac } from "../src/providers/lubimyczytac.js";
 
 const mockSearchAudible = vi.mocked(searchAudibleCatalog);
 const mockLookupAudnexus = vi.mocked(lookupAudnexusBook);
 const mockSearchOL = vi.mocked(searchOpenLibraryAsin);
 const mockSearchOLByIsbn = vi.mocked(searchOpenLibraryByIsbn);
 const mockSearchHC = vi.mocked(searchHardcoverAsin);
+const mockSearchLubimyczytac = vi.mocked(searchLubimyczytac);
 
 function makeBaseConfig() {
   return {
@@ -458,10 +468,10 @@ describe("resolveRouting", () => {
     expect(routing.providers).toEqual(["audible", "ol", "hc"]);
   });
 
-  it("maps 'pl' to audible region 'com' with all providers", () => {
+  it("maps 'pl' to audible region 'com' with OL, HC, and lubimyczytac providers", () => {
     const routing = resolveRouting("pl");
     expect(routing.audibleRegion).toBe("com");
-    expect(routing.providers).toEqual(["audible", "ol", "hc"]);
+    expect(routing.providers).toEqual(["ol", "hc", "lubimyczytac"]);
   });
 
   it("maps 'no' to audible region 'com' with all providers", () => {
@@ -568,5 +578,55 @@ describe("deterministicSearch with language routing", () => {
       { title: "Test Book", author: "Author" },
       { fetchFn: undefined, region: "com" },
     );
+  });
+
+  it("PL routing: calls lubimyczytac and skips audible, uses result as primary metadata", async () => {
+    const bookSet = setupBook("Autor/Zamek");
+
+    mockSearchLubimyczytac.mockResolvedValueOnce({
+      title: "Zamek",
+      authors: [{ name: "Autor" }],
+      series: [{ name: "Seria Zamków", sequence: "3" }],
+      description: "Opis książki",
+      genres: ["fantasy", "przygodowa"],
+      publisher: "Wydawnictwo Testowe",
+      language: "polski",
+      coverUrl: "https://example.com/cover.jpg",
+      isbn: "9788300000001",
+      lubimyczytacId: "123456",
+    } as never);
+
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+
+    const config = makeBaseConfig();
+    config.language = "pl";
+
+    const result = await deterministicSearch(bookSet, "Zamek", "Autor", config);
+
+    expect(result.status).toBe("written");
+    expect(mockSearchLubimyczytac).toHaveBeenCalledWith(
+      { title: "Zamek", author: "Autor" },
+      { fetchFn: undefined },
+    );
+    expect(mockSearchAudible).not.toHaveBeenCalled();
+    expect(cache.get("Zamek/Autor")).toBe("9788300000001");
+  });
+
+  it("PL routing: falls through when lubimyczytac returns null and OL+HC fail", async () => {
+    const bookSet = setupBook("Autor/Nieznana");
+
+    mockSearchLubimyczytac.mockResolvedValueOnce(null as never);
+    mockSearchOL.mockResolvedValueOnce(null as never);
+    mockSearchHC.mockResolvedValueOnce({ asin: null } as never);
+
+    const config = makeBaseConfig();
+    config.language = "pl";
+
+    const result = await deterministicSearch(bookSet, "Nieznana", "Autor", config);
+
+    expect(result.status).toBe("fallthrough");
+    expect(mockSearchLubimyczytac).toHaveBeenCalled();
+    expect(mockSearchAudible).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import { lookupAudnexusBook } from "./providers/audnexus.js";
 import { searchOpenLibraryAsin, searchOpenLibraryByIsbn } from "./providers/open-library.js";
 import { searchHardcoverAsin } from "./providers/hardcover.js";
 import { searchAudibleCatalog } from "./providers/audible.js";
+import { searchLubimyczytac } from "./providers/lubimyczytac.js";
 import type { OrchestratorConfig, ToolContext, OrchestrationResult } from "./orchestrator.js";
 import { writeOutputForBook } from "./orchestrator.js";
 import { fuzzyMatch, delay } from "./utils.js";
@@ -114,7 +115,7 @@ async function fetchOlCoverId(olAsin: string | null, fetchFn?: typeof fetch): Pr
 const SENTINEL_HC = { asin: null, series: undefined, seriesSequence: undefined } as const;
 
 export interface RoutingConfig {
-  providers: ("audible" | "ol" | "hc")[];
+  providers: ("audible" | "ol" | "hc" | "lubimyczytac")[];
   audibleRegion: string;
 }
 
@@ -122,6 +123,8 @@ export function resolveRouting(language?: string): RoutingConfig {
   switch (language) {
     case "es":
       return { providers: ["audible", "ol", "hc"], audibleRegion: "es" };
+    case "pl":
+      return { providers: ["ol", "hc", "lubimyczytac"], audibleRegion: "com" };
     default:
       return { providers: ["audible", "ol", "hc"], audibleRegion: "com" };
   }
@@ -138,8 +141,9 @@ async function parallelSearchAndMerge(
   const includeAudible = routing.providers.includes("audible");
   const includeOL = routing.providers.includes("ol");
   const includeHC = routing.providers.includes("hc");
+  const includeLubimyczytac = routing.providers.includes("lubimyczytac");
 
-  const [audibleResult, olAsin, hcResult] = await Promise.all([
+  const [audibleResult, olAsin, hcResult, lubimyczytacResult] = await Promise.all([
     includeAudible
       ? searchAudibleCatalog(identity, { fetchFn, region: routing.audibleRegion })
       : Promise.resolve(null),
@@ -147,6 +151,9 @@ async function parallelSearchAndMerge(
     includeHC && hardcoverApiKey
       ? searchHardcoverAsin(identity, hardcoverApiKey, fetchFn)
       : Promise.resolve(SENTINEL_HC),
+    includeLubimyczytac
+      ? searchLubimyczytac(identity, { fetchFn })
+      : Promise.resolve(null),
   ]);
 
   if (hardcoverApiKey) {
@@ -177,6 +184,40 @@ async function parallelSearchAndMerge(
       publisher: audibleResult.publisher || undefined,
       language: audibleResult.language || undefined,
       isbn: audibleResult.isbn || undefined,
+    };
+
+    const coverId = await fetchOlCoverId(olAsin, fetchFn);
+
+    if (hcResult.series) {
+      if (!series) series = hcResult.series;
+      if (!seriesSequence) seriesSequence = hcResult.seriesSequence;
+    }
+
+    if (series) meta.series = series;
+    if (seriesSequence) meta.seriesSequence = seriesSequence;
+    if (coverId) meta.coverId = coverId;
+
+    return meta;
+  }
+
+  if (lubimyczytacResult) {
+    asin = lubimyczytacResult.isbn || `lubimyczytac-${lubimyczytacResult.lubimyczytacId}`;
+
+    if (lubimyczytacResult.series.length > 0) {
+      series = lubimyczytacResult.series[0].name;
+      seriesSequence = lubimyczytacResult.series[0].sequence;
+    }
+
+    const meta: ResolvedMetadata = {
+      title: lubimyczytacResult.title,
+      author: lubimyczytacResult.authors[0]?.name || identity.author,
+      asin,
+      coverUrl: lubimyczytacResult.coverUrl || undefined,
+      description: lubimyczytacResult.description || undefined,
+      genres: lubimyczytacResult.genres.length > 0 ? lubimyczytacResult.genres : undefined,
+      publisher: lubimyczytacResult.publisher || undefined,
+      language: lubimyczytacResult.language || undefined,
+      isbn: lubimyczytacResult.isbn || undefined,
     };
 
     const coverId = await fetchOlCoverId(olAsin, fetchFn);
