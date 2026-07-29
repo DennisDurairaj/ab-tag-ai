@@ -98,4 +98,3 @@ Key docs:
 - `specs/000-baseline.md` — original requirements and user stories (partially superseded)
 - `specs/001-abs-upload.md` — Audiobookshelf upload mode (implemented)
 - `specs/002-reduce-llm-calls.md` — LLM-verifier-not-orchestrator refactor (implemented)
-- `.wayfinder/MAP.md` — wayfinder project map
