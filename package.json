@@ -1,6 +1,6 @@
 {
   "name": "abmeta",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "A TypeScript CLI tool that scans an input directory, resolves audiobook metadata via multiple book APIs, writes ID3/M4B tags, downloads cover art, and restructures files into an Audiobookshelf-compatible layout.",
   "type": "module",
   "main": "dist/index.js",
@@ -18,7 +18,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && tsup",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -33,7 +33,12 @@
     "plugins": [
       "@semantic-release/commit-analyzer",
       "@semantic-release/release-notes-generator",
-      ["@semantic-release/npm", { "provenance": true }],
+      [
+        "@semantic-release/npm",
+        {
+          "provenance": true
+        }
+      ],
       "@semantic-release/github"
     ]
   },
@@ -46,7 +51,7 @@
     "js-yaml": "4.3.0",
     "node-id3": "0.2.9",
     "picocolors": "1.1.1",
-    "sharp": "0.33.5"
+    "sharp": "0.35.3"
   },
   "devDependencies": {
     "@semantic-release/commit-analyzer": "13.0.1",
@@ -61,6 +66,7 @@
     "@typescript-eslint/parser": "8.65.0",
     "eslint": "9.39.5",
     "semantic-release": "25.0.8",
+    "tsup": "8.5.1",
     "tsx": "4.23.1",
     "typescript": "5.9.3",
     "vitest": "3.2.7"
