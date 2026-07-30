@@ -46,7 +46,7 @@ async function withRetry<T>(
 
       if (attempt === delays.length) break;
       if (!isRetryableError(error)) {
-        tagged("ABS", `${name} failed: ${errorLabel(error)} — not retryable, falling back`, "red");
+        tagged("ABS", `${name} failed: ${errorLabel(error)} — not retryable`, "red");
         throw error;
       }
 

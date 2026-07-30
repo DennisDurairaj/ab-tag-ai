@@ -333,7 +333,7 @@ describe("ABS E2E — Docker integration", () => {
   );
 
   it(
-    "fallback: upload fails after retries when container is stopped, falls back to local output",
+    "fallback: upload fails after retries when container is stopped, returns flagged status",
     async () => {
       const tmpDir = createTestDir();
       const outputDir = path.join(tmpDir, "output");
@@ -360,23 +360,14 @@ describe("ABS E2E — Docker integration", () => {
       ctx.bookSet = bookSet;
 
       const result = await writeOutputForBook({ title, author, asin }, ctx);
-      expect(result.terminal.status).toBe("written");
-      expect(result.terminal.outputDir).toContain("Fallback Author");
-      expect(result.terminal.outputDir).toContain("The Fallback Book");
-      if (result.terminal.status === "written") {
-        expect(result.terminal.fallbackReason).toBeDefined();
-        expect(result.terminal.fallbackReason).toMatch(/Search error|ECONNREFUSED|fetch/);
+      expect(result.terminal.status).toBe("flagged");
+      if (result.terminal.status === "flagged") {
+        expect(result.terminal.reason).toMatch(/Search error|ECONNREFUSED|fetch|Upload/);
       }
 
-      // Verify local output files exist with correct structure
+      // Verify no local files were written (no fallback)
       const authorDir = path.join(outputDir, author);
-      expect(fs.existsSync(authorDir)).toBe(true);
-
-      const bookOutputDir = path.join(authorDir, title);
-      expect(fs.existsSync(bookOutputDir)).toBe(true);
-
-      const outputFiles = fs.readdirSync(bookOutputDir);
-      expect(outputFiles.some((f) => f.endsWith(".mp3"))).toBe(true);
+      expect(fs.existsSync(authorDir)).toBe(false);
     },
     120000,
   );
