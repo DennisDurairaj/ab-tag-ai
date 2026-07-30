@@ -294,7 +294,7 @@ describe("writeOutputForBook — ABS upload flow", () => {
     }
   });
 
-  it("non-retryable immediate fallback: upload gets 401, falls back to local", async () => {
+  it("non-retryable immediate flag: upload gets 401, returns flagged", async () => {
     const origSetTimeout = globalThis.setTimeout;
     globalThis.setTimeout = ((fn: () => void) => { fn(); return 0 as unknown as NodeJS.Timeout; }) as typeof setTimeout;
     try {
@@ -339,12 +339,9 @@ describe("writeOutputForBook — ABS upload flow", () => {
         asin: "B000000001",
       }, ctx);
 
-      expect(result.terminal.status).toBe("written");
-      expect(result.terminal.outputDir).toContain("Author");
-      expect(result.terminal.outputDir).toContain("Test Book");
-      if (result.terminal.status === "written") {
-        expect(result.terminal.fallbackReason).toBeDefined();
-        expect(result.terminal.fallbackReason).toContain("401 Unauthorized");
+      expect(result.terminal.status).toBe("flagged");
+      if (result.terminal.status === "flagged") {
+        expect(result.terminal.reason).toContain("401 Unauthorized");
       }
       expect(uploadCalls).toBe(1);
     } finally {
@@ -431,7 +428,7 @@ describe("writeOutputForBook — ABS upload flow", () => {
     }
   });
 
-  it("retry+exhaust+fallback path: upload fails all 4 attempts, falls back to local", async () => {
+  it("retry+exhaust: upload fails all 4 attempts, returns flagged", async () => {
     const origSetTimeout = globalThis.setTimeout;
     globalThis.setTimeout = ((fn: () => void) => { fn(); return 0 as unknown as NodeJS.Timeout; }) as typeof setTimeout;
     try {
@@ -476,12 +473,9 @@ describe("writeOutputForBook — ABS upload flow", () => {
         asin: "B000000001",
       }, ctx);
 
-      expect(result.terminal.status).toBe("written");
-      expect(result.terminal.outputDir).toContain("Author");
-      expect(result.terminal.outputDir).toContain("Test Book");
-      if (result.terminal.status === "written") {
-        expect(result.terminal.fallbackReason).toBeDefined();
-        expect(result.terminal.fallbackReason).toContain("Upload failed");
+      expect(result.terminal.status).toBe("flagged");
+      if (result.terminal.status === "flagged") {
+        expect(result.terminal.reason).toContain("Upload failed");
       }
       expect(uploadCalls).toBe(4);
     } finally {

@@ -188,7 +188,7 @@ describe("verifyBook", () => {
     expect(callMeta.coverUrl).toBe("https://example.com/cover.jpg");
   });
 
-  it("flags via flag_for_review and writes review file", async () => {
+  it("flags via flag_for_review and returns flagged status", async () => {
     const input = setupInput("Author/Test Book");
 
     const fakeFetch = vi.fn(async () => ({
@@ -205,11 +205,6 @@ describe("verifyBook", () => {
     if (result.status === "flagged") {
       expect(result.reason).toBe("Provider metadata does not match");
     }
-
-    const reviewPath = path.join(outputDir, "review", "Test_Book.json");
-    expect(fs.existsSync(reviewPath)).toBe(true);
-    const reviewData = JSON.parse(fs.readFileSync(reviewPath, "utf-8"));
-    expect(reviewData.reason).toBe("Provider metadata does not match");
   });
 
   it("flag_for_review in dry-run mode should not write file", async () => {
@@ -234,20 +229,23 @@ describe("verifyBook", () => {
     expect(fs.existsSync(reviewPath)).toBe(false);
   });
 
-  it("auto-flags when no metadata is provided (no ASIN case)", async () => {
+  it("passes through to LLM when metadata is null", async () => {
     const input = setupInput("Author/Test Book", null, "No ASIN found from any provider");
 
-    const verifyBook = setupVerifier();
+    const fakeFetch = vi.fn(async () => ({
+      ok: true,
+      json: () => mockChatResponse(null, [
+        { id: "call_1", name: "flag_for_review", args: { reason: "No ASIN available to verify" } },
+      ]),
+    }));
 
+    const verifyBook = setupVerifier({ fetchFn: fakeFetch as unknown as typeof fetch });
     const result = await verifyBook(input);
 
     expect(result.status).toBe("flagged");
     if (result.status === "flagged") {
-      expect(result.reason).toBe("No ASIN found from any provider");
+      expect(result.reason).toBe("No ASIN available to verify");
     }
-
-    const reviewPath = path.join(outputDir, "review", "Test_Book.json");
-    expect(fs.existsSync(reviewPath)).toBe(true);
   });
 
   it("auto-flags when LLM returns no tool calls", async () => {

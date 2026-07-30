@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import type { ToolContext, TerminalResult } from "../orchestrator.js";
-import { buildBookFolderPath, writeCoverArt, copyFilesToOutput, fuzzyMatch, normalizeText } from "../utils.js";
+import { fuzzyMatch, normalizeText } from "../utils.js";
 import { assignTrackNumbers } from "../taggers/index.js";
 import { AbsServerError, AbsAuthError, AbsNotFoundError, AbsRateLimitError } from "./abs-client.js";
 import type { AbsClient, AbsSearchResult } from "./abs-client.js";
@@ -56,33 +56,6 @@ async function withRetry<T>(
   }
 
   throw lastError;
-}
-
-function executeLocalFallback(
-  ctx: ToolContext,
-  author: string,
-  title: string,
-  series: string | undefined,
-  coverArt: Buffer | null,
-  reason: string,
-): { content: string; terminal: TerminalResult } {
-  const bookDir = buildBookFolderPath(ctx.config.outputDir, author, title, series);
-
-  if (ctx.config.dryRun) {
-    return {
-      content: `[DRY-RUN] Would fall back to local: copy ${ctx.bookSet.files.length} files to ${bookDir} (${reason})`,
-      terminal: { status: "written", outputDir: bookDir, filesWritten: ctx.bookSet.files.length, fallbackReason: reason },
-    };
-  }
-
-  copyFilesToOutput(ctx.bookSet.files, bookDir);
-  writeCoverArt(coverArt, bookDir);
-
-  const coverMsg = coverArt ? "with cover art" : "without cover art";
-  return {
-    content: `Fell back to local output: ${ctx.bookSet.files.length} file(s) to ${bookDir} ${coverMsg}`,
-    terminal: { status: "written", outputDir: bookDir, filesWritten: ctx.bookSet.files.length, fallbackReason: reason },
-  };
 }
 
 export interface AbsUploadOptions {
@@ -143,14 +116,13 @@ function buildUpdateMediaPayload(options: {
 export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ content: string; terminal: TerminalResult }> {
   const { ctx, fetchFn, absClient, title, author, asin, series, seriesSequence, narrator, description, genres, publisher, language, isbn, coverArt } = options;
   const libraryId = ctx.config.absLibraryId;
-  const fallback = (reason: string) => executeLocalFallback(ctx, author, title, series, coverArt, reason);
 
   let searchResult: AbsSearchResult;
   try {
     searchResult = await withRetry("search ASIN", () => absClient.searchLibrary({ libraryId, query: asin, fetchFn }));
   } catch (err) {
-    tagged("ABS", `Duplicate check failed: ${errorLabel(err)} — falling back to local`, "red");
-    return fallback(`Search error (${errorLabel(err)})`);
+    tagged("ABS", `Duplicate check failed: ${errorLabel(err)}`, "red");
+    return { content: `Upload failed: "${title}" (Search error)`, terminal: { status: "flagged", reason: `Upload failed (${errorLabel(err)})` } };
   }
 
   if (searchResult.book.length > 0) {
@@ -163,8 +135,8 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
   try {
     searchResult = await withRetry("search title", () => absClient.searchLibrary({ libraryId, query: title, fetchFn }));
   } catch (err) {
-    tagged("ABS", `Duplicate check failed: ${errorLabel(err)} — falling back to local`, "red");
-    return fallback(`Search error (${errorLabel(err)})`);
+    tagged("ABS", `Duplicate check failed: ${errorLabel(err)}`, "red");
+    return { content: `Upload failed: "${title}" (Search error)`, terminal: { status: "flagged", reason: `Upload failed (${errorLabel(err)})` } };
   }
 
   const duplicate = searchResult.book.find((item) => {
@@ -193,8 +165,8 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
       folderId = libInfo.folders[0].id;
     }
   } catch (err) {
-    tagged("ABS", `Failed to get library info: ${errorLabel(err)} — falling back to local`, "red");
-    return fallback(`Library lookup failed (${errorLabel(err)})`);
+    tagged("ABS", `Failed to get library info: ${errorLabel(err)}`, "red");
+    return { content: `Upload failed: "${title}" (Library lookup error)`, terminal: { status: "flagged", reason: `Upload failed (${errorLabel(err)})` } };
   }
 
   let uploadResult: { id: string; libraryItemId: string };
@@ -210,8 +182,8 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
       fetchFn,
     }));
   } catch (err) {
-    tagged("ABS", `Upload failed: ${errorLabel(err)} — falling back to local`, "red");
-    return fallback(`Upload failed (${errorLabel(err)})`);
+    tagged("ABS", `Upload failed: ${errorLabel(err)}`, "red");
+    return { content: `Upload failed: "${title}" (${errorLabel(err)})`, terminal: { status: "flagged", reason: `Upload failed (${errorLabel(err)})` } };
   }
 
   try {
@@ -244,8 +216,8 @@ export async function executeAbsUpload(options: AbsUploadOptions): Promise<{ con
   }
 
   if (!foundId) {
-    tagged("ABS", "Could not discover item ID after upload — falling back to local", "red");
-    return fallback("Item ID not discovered after upload");
+    tagged("ABS", "Could not discover item ID after upload", "red");
+    return { content: `Upload failed: "${title}" (Item ID not discovered)`, terminal: { status: "flagged", reason: "Upload failed (Item ID not discovered after upload)" } };
   }
 
   const itemId = foundId;

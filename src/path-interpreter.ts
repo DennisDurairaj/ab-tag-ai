@@ -1,7 +1,6 @@
 import path from "node:path";
 import type { BookSet } from "./types.js";
 import { runAgent } from "./llm-agent.js";
-import { writeReviewFile } from "./utils.js";
 
 const SYSTEM_PROMPT = `You are a path interpreter for an audiobook organizer. Your job is to determine the correct author and title from a file path structure.
 
@@ -84,26 +83,11 @@ ${fileList}
 Determine the correct author and title from the path structure. The first segment is always the author. Call set_title_author to confirm, or flag_for_review if the path is ambiguous.`;
 }
 
-function writeFlagForReview(
-  bookSet: BookSet,
-  outputDir: string,
-  dryRun: boolean,
-  reason: string,
-): void {
-  const book = bookSet.books[0];
-  const title = book?.title || "Unknown";
-  const author = book?.author || "Unknown";
-  const filePaths = bookSet.files.map((f) => f.path);
-  writeReviewFile(outputDir, dryRun, title, author, filePaths, reason);
-}
-
 export function createPathInterpreter(config: PathInterpreterConfig) {
   const {
     model,
     apiBaseUrl = "https://api.openai.com/v1",
     apiKey: configApiKey,
-    dryRun,
-    outputDir,
     fetchFn: userFetchFn = fetch,
   } = config;
   const apiKey = configApiKey || process.env.LLM_API_KEY;
@@ -130,7 +114,6 @@ export function createPathInterpreter(config: PathInterpreterConfig) {
 
         if (name === "flag_for_review") {
           const reason = String(args.reason || "Path could not be interpreted");
-          writeFlagForReview(bookSet, outputDir, dryRun, reason);
           return { outcome: "terminal", value: { status: "flagged", reason } };
         }
 

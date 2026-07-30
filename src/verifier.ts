@@ -4,7 +4,6 @@ import type { ToolContext, OrchestrationResult } from "./orchestrator.js";
 import { writeOutputForBook } from "./orchestrator.js";
 import type { AsinCache } from "./providers/asin.js";
 import { runAgent } from "./llm-agent.js";
-import { writeReviewFile } from "./utils.js";
 
 const SYSTEM_PROMPT = `You are a metadata verifier for an audiobook organizer. The title and author have been inferred from the folder path, and provider searches (Open Library, Hardcover, Audnexus) have returned results that did not pass automated fuzzy matching. Your job is to review the provider results against the inferred identity and decide whether the match is close enough, or whether to flag for manual review.
 
@@ -141,18 +140,6 @@ Match Failure Reason: ${reason}
 Review the provider results against the inferred identity. If the match is credible (minor differences are acceptable), call write_output. Otherwise call flag_for_review.`;
 }
 
-function writeFlagForReview(
-  input: VerifierInput,
-  outputDir: string,
-  dryRun: boolean,
-  reason: string,
-): void {
-  const book = input.bookSet.books[0];
-  if (!book) return;
-  const filePaths = input.bookSet.files.map((f) => f.path);
-  writeReviewFile(outputDir, dryRun, book.title, book.author, filePaths, reason);
-}
-
 async function executeWriteOutputTool(
   args: Record<string, unknown>,
   ctx: ToolContext,
@@ -192,12 +179,6 @@ export function createVerifier(config: VerifierConfig) {
   return async function verifyBook(input: VerifierInput): Promise<VerifierResult> {
     if (!apiKey) {
       return { status: "flagged", reason: "LLM API key not configured" };
-    }
-
-    if (!input.metadata) {
-      const reason = input.reason || "No ASIN found from any provider";
-      writeFlagForReview(input, outputDir, dryRun, reason);
-      return { status: "flagged", reason };
     }
 
     const context: ToolContext = {
@@ -242,7 +223,6 @@ export function createVerifier(config: VerifierConfig) {
 
         if (name === "flag_for_review") {
           const reason = String(args.reason || "Could not verify provider metadata");
-          writeFlagForReview(input, outputDir, dryRun, reason);
           return { outcome: "terminal", value: { status: "flagged", reason } };
         }
 
@@ -259,7 +239,6 @@ export function createVerifier(config: VerifierConfig) {
       return result.value!;
     }
 
-    writeFlagForReview(input, outputDir, dryRun, result.reason!);
     return { status: "flagged", reason: result.reason! };
   };
 }

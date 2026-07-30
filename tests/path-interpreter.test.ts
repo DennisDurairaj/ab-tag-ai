@@ -111,7 +111,7 @@ describe("interpretPath", () => {
     }
   });
 
-  it("flags via flag_for_review and writes review file", async () => {
+  it("flags via flag_for_review and returns flagged status", async () => {
     const bookDir = path.join(tmpDir, "garbage");
     fs.mkdirSync(bookDir, { recursive: true });
     createTempFile(bookDir, "chapter.mp3");
@@ -139,12 +139,6 @@ describe("interpretPath", () => {
     if (result.status === "flagged") {
       expect(result.reason).toBe("Cannot determine title or author from path");
     }
-
-    const reviewPath = path.join(outputDir, "review", "garbage.json");
-    expect(fs.existsSync(reviewPath)).toBe(true);
-    const reviewData = JSON.parse(fs.readFileSync(reviewPath, "utf-8"));
-    expect(reviewData.reason).toBe("Cannot determine title or author from path");
-    expect(reviewData.title).toBe("garbage");
   });
 
   it("flag_for_review in dry-run mode should not write file", async () => {

@@ -12,6 +12,12 @@ import { createVerifier } from "./verifier.js";
 import { findLocalCoverArt } from "./providers/cover-art.js";
 import { header, success, skipped, flagged, progress, raw, warn, error as logError } from "./logger.js";
 
+interface FailureEntry {
+  title: string;
+  author: string;
+  reason: string;
+}
+
 const CACHE_DIR = ".wayfinder/cache";
 
 async function scanFilteredFiles(inputDir: string, include: string[]): Promise<AudioFile[]> {
@@ -54,12 +60,12 @@ export async function processLibrary(config: Config): Promise<void> {
     absLibraryId: config.abs_library_id,
   });
 
-  const fallbacks: Array<{ title: string; reason: string }> = [];
+  const failures: FailureEntry[] = [];
 
   const concurrency = Math.max(1, config.concurrency);
   await runWithConcurrency(bookSets, concurrency, async (bookSet) => {
     try {
-      await processBook(bookSet, config, verifyBook, fallbacks, interpretPath, asinCache);
+      await processBook(bookSet, config, verifyBook, failures, interpretPath, asinCache);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       logError(msg);
@@ -68,11 +74,15 @@ export async function processLibrary(config: Config): Promise<void> {
 
   asinCache.save();
 
-  if (fallbacks.length > 0) {
-    header("\n=== ABS FALLBACK SUMMARY ===");
-    warn(`${fallbacks.length} book(s) fell back to local output:\n`);
-    for (const fb of fallbacks) {
-      raw(`  - "${fb.title}": ${fb.reason}`);
+  if (failures.length > 0) {
+    header("\n=== FAILURES ===");
+    warn(`${failures.length} book(s) failed to process:\n`);
+    for (const fb of failures) {
+      if (fb.author) {
+        raw(`  - "${fb.title}" - "${fb.author}": ${fb.reason}`);
+      } else {
+        raw(`  - "${fb.title}": ${fb.reason}`);
+      }
     }
   }
 }
@@ -129,7 +139,7 @@ async function processBook(
   bookSet: BookSet,
   config: Config,
   verifyBook: ReturnType<typeof createVerifier>,
-  fallbacks: Array<{ title: string; reason: string }>,
+  failures: FailureEntry[],
   interpretPath: ReturnType<typeof createPathInterpreter>,
   asinCache: AsinCache,
 ): Promise<void> {
@@ -145,6 +155,11 @@ async function processBook(
   const pathResult = await interpretPath(bookSet);
   if (pathResult.status === "flagged") {
     flagged(`  Flagged: ${pathResult.reason}`);
+    if (config.output_mode === "audiobookshelf") {
+      failures.push({ title: book.title, author: book.author, reason: pathResult.reason });
+    } else {
+      writeReviewFile(config.output, config.dry_run, book.title, book.author, bookSet.files.map((f) => f.path), pathResult.reason);
+    }
     return;
   }
 
@@ -165,16 +180,22 @@ async function processBook(
   });
 
   if (searchResult.status === "written") {
-    const fallbackNote = searchResult.fallbackReason ? ` (fell back: ${searchResult.fallbackReason})` : "";
-    success(`  Written: ${searchResult.outputDir} (${searchResult.filesWritten} files)${fallbackNote}`);
-    if (searchResult.fallbackReason) {
-      fallbacks.push({ title: book.title, reason: searchResult.fallbackReason });
-    }
+    success(`  Written: ${searchResult.outputDir} (${searchResult.filesWritten} files)`);
     return;
   }
 
   if (searchResult.status === "skipped") {
     skipped(`  Skipped: ${searchResult.reason}`);
+    return;
+  }
+
+  if (!searchResult.metadata) {
+    flagged(`  Flagged: ${searchResult.reason}`);
+    if (config.output_mode === "audiobookshelf") {
+      failures.push({ title: book.title, author: book.author, reason: searchResult.reason });
+    } else {
+      writeReviewFile(config.output, config.dry_run, book.title, book.author, bookSet.files.map((f) => f.path), searchResult.reason);
+    }
     return;
   }
 
@@ -188,18 +209,25 @@ async function processBook(
   });
 
   if (result.status === "written") {
-    const fallbackNote = result.fallbackReason ? ` (fell back: ${result.fallbackReason})` : "";
-    success(`  Written: ${result.outputDir} (${result.filesWritten} files)${fallbackNote}`);
-    if (result.fallbackReason) {
-      fallbacks.push({ title: book.title, reason: result.fallbackReason });
-    }
+    success(`  Written: ${result.outputDir} (${result.filesWritten} files)`);
   } else if (result.status === "skipped") {
     skipped(`  Skipped: ${result.reason}`);
   } else {
     flagged(`  Flagged: ${result.reason}`);
+    if (config.output_mode === "audiobookshelf") {
+      failures.push({ title: book.title, author: book.author, reason: result.reason });
+    } else {
+      writeReviewFile(config.output, config.dry_run, book.title, book.author, bookSet.files.map((f) => f.path), result.reason);
+    }
   }
 }
 
-export function flagForReview(book: Book, filePaths: string[], config: Config, reason: string): void {
-  writeReviewFile(config.output, config.dry_run, book.title, book.author, filePaths, reason);
+export function flagForReview(book: Book, filePaths: string[], config: Config, reason: string, failures?: FailureEntry[]): void {
+  if (config.output_mode === "audiobookshelf") {
+    if (failures) {
+      failures.push({ title: book.title, author: book.author, reason });
+    }
+  } else {
+    writeReviewFile(config.output, config.dry_run, book.title, book.author, filePaths, reason);
+  }
 }
