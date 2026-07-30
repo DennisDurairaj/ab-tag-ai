@@ -91,7 +91,7 @@ async function main(): Promise<void> {
 
 export { main };
 
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   main().catch((err: unknown) => {
     logErr(`Fatal error: ${err instanceof Error ? err.message : String(err)}`);
