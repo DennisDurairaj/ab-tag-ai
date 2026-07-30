@@ -34,3 +34,4 @@ Like database migrations: each file is a numbered change applied sequentially. R
 | 003 | Improve Metadata Reliability                 | implemented                                       |
 | 004 | Language-Based Provider Routing              | proposed                                          |
 | 005 | Interactive CLI Folder Picker                | proposed                                          |
+| 006 | ABS Failure Handling and Run Logging         | proposed                                          |

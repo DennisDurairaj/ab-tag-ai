@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { AudioFile } from "./types.js";
-import { dryRun as dryRunMsg } from "./logger.js";
+import { dryRun as dryRunMsg, error as logError } from "./logger.js";
 
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -128,18 +128,22 @@ export function writeReviewFile(
     return;
   }
 
-  const reviewDir = path.join(outputDir, "review");
-  fs.mkdirSync(reviewDir, { recursive: true });
-  const safeName = title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
-  const reviewPath = path.join(reviewDir, `${safeName}.json`);
-  const reviewData = {
-    title,
-    author,
-    files: filePaths,
-    reason,
-    timestamp: new Date().toISOString(),
-  };
-  fs.writeFileSync(reviewPath, JSON.stringify(reviewData, null, 2), "utf-8");
+  try {
+    const reviewDir = path.join(outputDir, "review");
+    fs.mkdirSync(reviewDir, { recursive: true });
+    const safeName = title.replace(/[^a-z0-9]/gi, "_").slice(0, 50) || "unknown";
+    const reviewPath = path.join(reviewDir, `${safeName}.json`);
+    const reviewData = {
+      title,
+      author,
+      files: filePaths,
+      reason,
+      timestamp: new Date().toISOString(),
+    };
+    fs.writeFileSync(reviewPath, JSON.stringify(reviewData, null, 2), "utf-8");
+  } catch (err) {
+    logError(`Failed to write review file at ${path.join(outputDir, "review")}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function runWithConcurrency<T, R>(
