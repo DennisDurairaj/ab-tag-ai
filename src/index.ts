@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { loadConfig, mergeCliOverrides, validateConfig } from "./config.js";
 import { processLibrary } from "./agent.js";
-import { setLogLevel, error as logErr, warn as logWarn, dryRun, success } from "./logger.js";
+import { setLogLevel, setLogFileWriter, error as logErr, warn as logWarn, dryRun, success } from "./logger.js";
+import { LogFileWriter } from "./log-file-writer.js";
 import { runInteractivePicker } from "./interactive-picker.js";
 
 async function main(): Promise<void> {
@@ -81,6 +82,12 @@ async function main(): Promise<void> {
     }
     program.help({ error: true });
   }
+
+  config.output = path.resolve(config.output);
+
+  const logWriter = new LogFileWriter(config.output);
+  logWriter.startup(new Date());
+  setLogFileWriter(logWriter);
 
   if (config.dry_run) {
     dryRun("DRY RUN mode — no files will be modified.");

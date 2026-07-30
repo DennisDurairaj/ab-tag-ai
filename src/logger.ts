@@ -1,4 +1,5 @@
 import pc from "picocolors";
+import type { LogFileWriter } from "./log-file-writer.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -12,6 +13,14 @@ const COLOR_FN = {
   cyan: pc.cyan,
   dim: pc.dim,
 } as const;
+
+let logFileWriter: LogFileWriter | null = null;
+
+function writeToFile(msg: string): void {
+  if (logFileWriter) {
+    logFileWriter.write(new Date(), msg);
+  }
+}
 
 export interface Logger {
   raw(msg: string): void;
@@ -34,22 +43,27 @@ export function createLogger(level: LogLevel = "info"): Logger {
   }
 
   return {
-    raw(msg: string) { if (canLog("info")) console.log(msg); },
-    warn(msg: string) { if (canLog("warn")) console.warn(pc.yellow(msg)); },
-    error(msg: string) { if (canLog("error")) console.error(pc.red(msg)); },
-    debug(msg: string) { if (canLog("debug")) console.log(pc.dim(msg)); },
-    header(msg: string) { if (canLog("info")) console.log(pc.bold(pc.cyan(msg))); },
-    progress(msg: string) { if (canLog("info")) console.log(pc.cyan(msg)); },
-    success(msg: string) { if (canLog("info")) console.log(pc.green(msg)); },
-    skipped(msg: string) { if (canLog("info")) console.log(pc.dim(msg)); },
-    flagged(msg: string) { if (canLog("info")) console.log(pc.magenta(msg)); },
-    dryRun(msg: string) { if (canLog("info")) console.log(pc.blue(msg)); },
-    detail(msg: string) { if (canLog("debug")) console.log(pc.dim(msg)); },
+    raw(msg: string) { if (canLog("info")) { console.log(msg); writeToFile(msg); } },
+    warn(msg: string) { if (canLog("warn")) { console.warn(pc.yellow(msg)); writeToFile(msg); } },
+    error(msg: string) { if (canLog("error")) { console.error(pc.red(msg)); writeToFile(msg); } },
+    debug(msg: string) { if (canLog("debug")) { console.log(pc.dim(msg)); writeToFile(msg); } },
+    header(msg: string) { if (canLog("info")) { console.log(pc.bold(pc.cyan(msg))); writeToFile(msg); } },
+    progress(msg: string) { if (canLog("info")) { console.log(pc.cyan(msg)); writeToFile(msg); } },
+    success(msg: string) { if (canLog("info")) { console.log(pc.green(msg)); writeToFile(msg); } },
+    skipped(msg: string) { if (canLog("info")) { console.log(pc.dim(msg)); writeToFile(msg); } },
+    flagged(msg: string) { if (canLog("info")) { console.log(pc.magenta(msg)); writeToFile(msg); } },
+    dryRun(msg: string) { if (canLog("info")) { console.log(pc.blue(msg)); writeToFile(msg); } },
+    detail(msg: string) { if (canLog("debug")) { console.log(pc.dim(msg)); writeToFile(msg); } },
     tagged(tag: string, msg: string, color: keyof typeof COLOR_FN = "dim") {
       if (!canLog("info")) return;
       console.error(pc.dim(`  [${tag}] `) + COLOR_FN[color](msg));
+      writeToFile(`[${tag}] ${msg}`);
     },
   };
+}
+
+export function setLogFileWriter(writer: LogFileWriter | null): void {
+  logFileWriter = writer;
 }
 
 let currentLogger: Logger = createLogger("info");
