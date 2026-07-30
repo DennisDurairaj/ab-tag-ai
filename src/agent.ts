@@ -44,6 +44,7 @@ export async function processLibrary(config: Config): Promise<void> {
     apiBaseUrl: config.llm_api_base_url || undefined,
     dryRun: config.dry_run,
     outputDir: config.output,
+    inputDir: config.input,
   });
 
   const verifyBook = createVerifier({

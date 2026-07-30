@@ -65,6 +65,7 @@ describe("interpretPath", () => {
       model: "test-model",
       apiKey: "test-key",
       outputDir,
+      inputDir: tmpDir,
       dryRun: false,
       fetchFn: fakeFetch as unknown as typeof fetch,
     });
@@ -99,6 +100,7 @@ describe("interpretPath", () => {
       model: "test-model",
       apiKey: "test-key",
       outputDir,
+      inputDir: tmpDir,
       dryRun: false,
       fetchFn: fakeFetch as unknown as typeof fetch,
     });
@@ -130,6 +132,7 @@ describe("interpretPath", () => {
       model: "test-model",
       apiKey: "test-key",
       outputDir,
+      inputDir: tmpDir,
       dryRun: false,
       fetchFn: fakeFetch as unknown as typeof fetch,
     });
@@ -160,6 +163,7 @@ describe("interpretPath", () => {
       model: "test-model",
       apiKey: "test-key",
       outputDir,
+      inputDir: tmpDir,
       dryRun: true,
       fetchFn: fakeFetch as unknown as typeof fetch,
     });
@@ -185,6 +189,7 @@ describe("interpretPath", () => {
       model: "test-model",
       apiKey: "test-key",
       outputDir,
+      inputDir: tmpDir,
       dryRun: false,
       fetchFn: fakeFetch as unknown as typeof fetch,
     });
@@ -215,6 +220,7 @@ describe("interpretPath", () => {
       model: "test-model",
       apiKey: "test-key",
       outputDir,
+      inputDir: tmpDir,
       dryRun: false,
       fetchFn: fakeFetch as unknown as typeof fetch,
     });
@@ -239,6 +245,7 @@ describe("interpretPath", () => {
       model: "test-model",
       apiKey: "",
       outputDir,
+      inputDir: tmpDir,
       dryRun: false,
     });
 
@@ -265,6 +272,7 @@ describe("interpretPath", () => {
       model: "test-model",
       apiKey: "test-key",
       outputDir,
+      inputDir: tmpDir,
       dryRun: false,
       fetchFn: fakeFetch as unknown as typeof fetch,
     });
@@ -296,6 +304,7 @@ describe("interpretPath", () => {
       apiKey: "test-key",
       apiBaseUrl: "https://custom-llm.example.com/v1",
       outputDir,
+      inputDir: tmpDir,
       dryRun: false,
       fetchFn: fakeFetch as unknown as typeof fetch,
     });
@@ -324,6 +333,7 @@ describe("interpretPath", () => {
       model: "test-model",
       apiKey: "test-key",
       outputDir,
+      inputDir: tmpDir,
       dryRun: false,
       fetchFn: fakeFetch as unknown as typeof fetch,
     });
@@ -356,6 +366,7 @@ describe("interpretPath", () => {
       model: "test-model",
       apiKey: "test-key",
       outputDir,
+      inputDir: tmpDir,
       dryRun: false,
       fetchFn: fakeFetch as unknown as typeof fetch,
     });

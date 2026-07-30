@@ -50,6 +50,7 @@ export interface PathInterpreterConfig {
   apiBaseUrl?: string;
   dryRun: boolean;
   outputDir: string;
+  inputDir: string;
   fetchFn?: typeof fetch;
 }
 
@@ -57,11 +58,11 @@ export type PathInterpreterResult =
   | { status: "resolved"; title: string; author: string; language?: string }
   | { status: "flagged"; reason: string };
 
-function buildInitialMessage(bookSet: BookSet): string {
+function buildInitialMessage(bookSet: BookSet, inputDir: string): string {
   const firstFile = bookSet.files[0];
   const sourceDir = firstFile ? path.dirname(firstFile.path) : "unknown";
-  const dirParts = sourceDir.split(path.sep);
-  const segments = dirParts.slice(-4);
+  const relative = path.relative(inputDir, sourceDir);
+  const segments = relative ? relative.split(path.sep) : [path.basename(sourceDir)];
 
   const fileList = bookSet.files.map((f) => {
     const tags = f.existingMetadata;
@@ -99,7 +100,7 @@ export function createPathInterpreter(config: PathInterpreterConfig) {
 
     const result = await runAgent<PathInterpreterResult>({
       systemPrompt: SYSTEM_PROMPT,
-      initialMessage: buildInitialMessage(bookSet),
+      initialMessage: buildInitialMessage(bookSet, config.inputDir),
       tools: TOOLS,
       handleToolCall: async (name, args) => {
         if (name === "set_title_author") {
